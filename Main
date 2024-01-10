@@ -1,3 +1,8 @@
+#https://github.com/barentsen
+#https://github.com/barentsen/k2mosaic
+#https://github.com/KeplerGO/k2flix
+#https://keplergo.github.io/KeplerScienceWebsite/software.html
+#
 import astropy
 from astropy.io import fits
 from astropy.wcs import WCS
