@@ -1,0 +1,114 @@
+import astropy
+from astropy.io import fits
+from astropy.table import QTable, Table, Column
+from astropy import units as u
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from astropy.wcs import WCS
+
+from astropy import units as u
+from astropy.coordinates import SkyCoord
+Coord = SkyCoord(ra=10.625*u.degree, dec=41.2*u.degree, frame='icrs')
+base_url = "https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000{4468:4684}-c03_llc.fits"
+
+#image_list = [download_file(base_url.format(n), cache=True) 
+#              for n in range(1, 5+1)]
+#image_concat = [fits.getdata(image) for image in image_list]
+
+
+
+#data = []
+#for file_name in fits_files_list:
+#    with fits.open(file_name, memmap=False) as hdulist:
+#        lam = np.around(10**hdulist[1].data['loglam'], 4)
+#        flux = np.around(hdulist[1].data['flux'], 4)
+#        z = np.around(hdulist[2].data['z'], 4)
+#    data.append([lam, flux, z])  
+
+#mylist = [ deal_with( 'https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits' % i ) for i in range(4469:4479) ]
+#create data
+pixelDatatable = pd.DataFrame(columns = ['Name', 'Scores', 'Questions'], 
+                   index = ['a', 'b', 'c'])
+data = []
+#define header names
+col_names = ["Pixel","RA", "DEC","PosX","PosY"]
+
+x = 4469
+while x < 4480:
+    fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
+    #fits.info(fits_file) (these print the data)
+    #fits.getdata(fits_file, ext=1).columns (these print the data)
+    with fits.open(fits_file) as hdulist: 
+        header1 = hdulist[1].header
+        header2 = hdulist[2].header
+
+#print(repr(header1[0:20000])) #repr() prints the info into neat columns
+#print(repr(header2[0:20000])) #repr() prints the info into neat columns
+#print(fits.getdata(fits_file).columns)
+
+    with fits.open(fits_file, mode="readonly") as hdulist:
+        tess_bjds = hdulist[1].data['TIME']
+        sap_fluxes = hdulist[1].data['SAP_FLUX']
+        pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
+        RA = header2['Ra_OBJ']
+        DEC = header2['DEC_OBJ']
+        PosX = header2['CRVAL1P']
+        PosY = header2['CRVAL2P']
+ # Getting Coordinates from Dec/Asc into cartesian
+    Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree)     
+    #print('This is Pixel %d' % x)
+    #print(Coord)
+    #print(PosX)
+    #print(PosY)
+    data.append([x,RA,DEC,PosX,PosY])
+    x += 1
+    
+pixelDatatable = pd.DataFrame(data)
+print (pixelDatatable)
+# First we need to read in the array of cadence quality flags, let's do
+# that now.
+with fits.open(fits_file, mode="readonly") as hdulist:
+    qual_flags = hdulist[1].data['SAP_QUALITY']
+
+# Start figure and axis.
+fig, ax = plt.subplots()
+
+# Plot the timeseries in black circles.
+ax.plot(tess_bjds, pdcsap_fluxes, 'ko')
+
+# Locate quality flags greater than zero.
+where_gt0 = np.where(qual_flags > 0)[0]
+
+# Overplot the fluxes with quality flags greater than zero in red.
+ax.plot(tess_bjds[where_gt0], pdcsap_fluxes[where_gt0], 'ro')
+
+# Let's label the axes and define a title for the figure.
+#fig.suptitle("Light Curve")
+#ax.set_ylabel("PDCSAP Flux (e-/s)")
+#ax.set_xlabel("Time (TBJD)")
+#plt.show()
+
+
+#print(Coord)
+#print(PosX)
+#print(PosY)
+####### teste image https://spacetelescope.github.io/notebooks/notebooks/MAST/TESS/beginner_tour_lc_tp/beginner_tour_lc_tp.html
+#Plot the first image of the FLUX Column with WCS overlay.
+#with fits.open(fits_file, mode="readonly") as hdulist:
+#    tpf_data = hdulist[1].data
+#    first_image = sap_fluxes = hdulist[1].data['SAP_FLUX']
+    #first_image = tpf_data['SAP_FLUX'][1]
+#The aperture extension header contains the same WCS as that in the Pixels extension.
+#    wcs = WCS(hdulist[2].header)
+#Plot the first image in the file.
+#    fig = plt.figure(figsize = (6,6))
+#    fig.add_subplot(111, projection = wcs)
+#    plt.imshow(first_image, origin = 'lower', cmap = plt.cm.viridis)
+#    plt.xlabel('RA', fontsize = 14)
+#    plt.ylabel('Dec', fontsize = 14)
+#    plt.grid(axis = 'both', color = 'white', ls = 'solid')
+
+
+    #####
+    
