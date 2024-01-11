@@ -3,6 +3,7 @@
 #https://github.com/KeplerGO/k2flix
 #https://keplergo.github.io/KeplerScienceWebsite/software.html
 #
+#import galsim
 import astropy
 from astropy.io import fits
 from astropy.wcs import WCS
@@ -40,19 +41,30 @@ data = []
 #define header names
 col_names = ["Pixel","RA", "DEC","PosX","PosY"]
 
+
+fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo200004469-c03_llc.fits")
+    #fits.info(fits_file) #(these print the data)
+    #fits.getdata(fits_file, ext=1).columns #(these print the data)
+with fits.open(fits_file) as hdulist: 
+    header1 = hdulist[1].header
+    header2 = hdulist[2].header
+with fits.open(fits_file) as hdulist:
+    print(repr(header1[0:20000])) #repr() prints the info into neat columns
+    print(repr(header2[0:20000])) #repr() prints the info into neat columns
+    print(fits.getdata(fits_file).columns)
+
+maxcolumnsize = 0
+maxrowsize = 0
+mincolumnsize = 10000
+minrowsize = 10000
 x = 4469
-while x < 4480:
+while x < 4923:
     fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
-    fits.info(fits_file) #(these print the data)
-    fits.getdata(fits_file, ext=1).columns #(these print the data)
+    #fits.info(fits_file) #(these print the data)
+    #fits.getdata(fits_file, ext=1).columns #(these print the data)
     with fits.open(fits_file) as hdulist: 
         header1 = hdulist[1].header
         header2 = hdulist[2].header
-
-#print(repr(header1[0:20000])) #repr() prints the info into neat columns
-#print(repr(header2[0:20000])) #repr() prints the info into neat columns
-#print(fits.getdata(fits_file).columns)
-
     with fits.open(fits_file, mode="readonly") as hdulist:
         tess_bjds = hdulist[1].data['TIME']
         sap_fluxes = hdulist[1].data['SAP_FLUX']
@@ -68,7 +80,21 @@ while x < 4480:
     #print(PosX)
     #print(PosY)
     data.append([x,RA,DEC,PosX,PosY])
+    if maxcolumnsize < PosY:
+        maxcolumnsize = PosY
+    if maxrowsize < PosX:
+        maxrowsize = PosX
+    if mincolumnsize > PosY:
+        mincolumnsize = PosY
+    if minrowsize > PosX:
+        minrowsize = PosX
     x += 1
+print (maxcolumnsize)
+print (maxrowsize)
+print (mincolumnsize)
+print (minrowsize)
+    
+
     
 pixelDatatable = pd.DataFrame(data)
 print (pixelDatatable)
@@ -151,3 +177,103 @@ cbar = fig.colorbar(cax)
 # Add a title to the plot.
 fig.suptitle("TRAPPIST-1 Aperture - Campaign 12")
 plt.show()
+
+
+'''
+
+
+# Make some random input data so we can run this.
+# You would use values from your input catalog.
+ngal = 20
+numpy.random.seed(123)
+ra = 15 + 0.02*numpy.random.random( (ngal) )    # hours
+dec = -34 + 0.3*numpy.random.random( (ngal) )   # degrees
+size = 0.1 * numpy.random.random( (ngal) )      # arcmin
+e1 = 0.5 * numpy.random.random( (ngal) ) - 0.25
+e2 = 0.5 * numpy.random.random( (ngal) ) - 0.25
+
+# arcsec is usually the more natural units for sizes, so let's
+# convert to that here to make things simpler later.
+# There are options throughout GalSim to do things in different
+# units, such as arcmin, but arcsec is the default, so it will
+# be simpler if we don't have to worry about that.
+size *= 60  # size now in arcsec
+
+# Some plausible location at which to center the image.
+# Note that we are now attaching the right units to these
+# so GalSim knows what angle they correspond to.
+cen_ra = numpy.mean(ra) * galsim.hours
+cen_dec = numpy.mean(dec) * galsim.degrees
+
+# GalSim uses CelestialCoord to handle celestial coordinates.
+# It knows how to do all the correct spherical geometry calculations.
+cen_coord = galsim.CelestialCoord(cen_ra, cen_dec)
+print 'cen_coord = ',cen_coord.ra.hms(), cen_coord.dec.dms()
+
+# Define some reasonable pixel size.
+pixel_scale = 0.4  # arcsec / pixel
+
+# Make the full image of some size.
+# Powers of two are typical, but not required.
+image_size = 2048
+image = galsim.Image(image_size, image_size)
+
+# Define the WCS we'll use to connect pixels to celestial coords.
+# For real data, this would usually be read from the FITS header.
+# Here, we'll need to make our own.  The simplest one that properly
+# handles celestial coordinates is TanWCS.  It first goes from
+# pixels to a local tangent plane using a linear affine transformation.
+# Then it projects that tangent plane into the spherical sky coordinates.
+# In our case, we can just let the affine transformation be a uniform
+# square pixel grid with its origin at the center of the image.
+affine_wcs = galsim.PixelScale(pixel_scale).affine().withOrigin(image.center())
+wcs = galsim.TanWCS(affine_wcs, world_origin=cen_coord)
+image.wcs = wcs  # Tell the image to use this WCS
+
+for i in range(ngal):
+    # Get the celestial coord of the galaxy
+    coord = galsim.CelestialCoord(ra[i]*galsim.hours, dec[i]*galsim.degrees)
+    print 'gal coord = ',coord.ra.hms(), coord.dec.dms()
+
+    # Where is it in the image?
+    image_pos = wcs.toImage(coord)
+    print 'position in image = ',image_pos
+
+    # Make some model of the galaxy.
+    flux = size[i]**2 * 1000  # Make bigger things brighter...
+    gal = galsim.Exponential(half_light_radius=size[i], flux=flux)
+    gal = gal.shear(e1=e1[i],e2=e2[i])
+
+    # Pull out a cutout around where we want the galaxy to be.
+    # The bounds needs to be in integers.
+    # The fractional part of the position will go into offset when we draw.
+    ix = int(image_pos.x)
+    iy = int(image_pos.y)
+    bounds = galsim.BoundsI(ix-64, ix+64, iy-64, iy+64)
+
+    # This might be (partially) off the full image, so get the overlap region.
+    bounds = bounds & image.bounds
+    if not bounds.isDefined():
+        print '    This galaxy is completely off the image.'
+        continue
+
+    # This is the portion of the full image where we will draw.  If you try to
+    # draw onto the full image, it will use a lot of memory, but if you go too
+    # small, you might see artifacts at the edges.  You might need to 
+    # experiment a bit with what is a good size cutout.
+    sub_image = image[bounds]
+
+    # Draw the galaxy.  
+    # GalSim by default will center the object at the "true center" of the
+    # image.  We actually want it centered at image_pos, so provide the
+    # difference as the offset parameter.
+    # Also, the default is to overwrite the image.  But we want to add to
+    # the existing image in case galaxies overlap.  Hence add_to_image=True
+    gal.drawImage(image=sub_image, offset=image_pos - sub_image.trueCenter(),
+                  add_to_image=True)
+
+# Probably want to add a little noise...
+image.addNoise(galsim.GaussianNoise(sigma=0.5))
+
+# Write to a file.
+image.write('output.fits')'''
