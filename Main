@@ -53,10 +53,9 @@ with fits.open(fits_file) as hdulist:
     print(repr(header2[0:20000])) #repr() prints the info into neat columns
     print(fits.getdata(fits_file).columns)
 
-maxcolumnsize = 0
-maxrowsize = 0
-mincolumnsize = 10000
-minrowsize = 10000
+
+PixelGrid = np.zeros((454 , 118), dtype=object)
+
 x = 4469
 while x < 4923:
     fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
@@ -79,20 +78,14 @@ while x < 4923:
     #print(Coord)
     #print(PosX)
     #print(PosY)
-    data.append([x,RA,DEC,PosX,PosY])
-    if maxcolumnsize < PosY:
-        maxcolumnsize = PosY
-    if maxrowsize < PosX:
-        maxrowsize = PosX
-    if mincolumnsize > PosY:
-        mincolumnsize = PosY
-    if minrowsize > PosX:
-        minrowsize = PosX
+    print (tess_bjds)
+    print (sap_fluxes)
+    data.append([x,RA,DEC,PosX,PosY]) 
+    realPosX = (PosX-95)
+    realPosY = (PosY-700)
+    PixelGrid[realPosX, realPosY] = sap_fluxes # check for start at 0 #117y by 453x initial size
     x += 1
-print (maxcolumnsize)
-print (maxrowsize)
-print (mincolumnsize)
-print (minrowsize)
+
     
 
     
@@ -121,6 +114,8 @@ ax.set_ylabel("PDCSAP Flux (e-/s)")
 ax.set_xlabel("Time (TBJD)")
 plt.show()
 
+
+print('The matrix is : \n', PixelGrid) 
 
 #print(Coord)
 #print(PosX)
