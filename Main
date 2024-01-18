@@ -8,40 +8,25 @@ import astropy
 from astropy.io import fits
 from astropy.wcs import WCS
 from astropy.table import QTable, Table, Column
+from PIL import Image
 from astropy import units as u
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
 from astropy.wcs import WCS
 
 from astropy import units as u
 from astropy.coordinates import SkyCoord
+#initializing skycoord(to use RA and DEC positioning)
 Coord = SkyCoord(ra=10.625*u.degree, dec=41.2*u.degree, frame='icrs')
+#URL of the fits files
 base_url = "https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000{4468:4684}-c03_llc.fits"
 
-#image_list = [download_file(base_url.format(n), cache=True) 
-#              for n in range(1, 5+1)]
-#image_concat = [fits.getdata(image) for image in image_list]
-
-
-
-#data = []
-#for file_name in fits_files_list:
-#    with fits.open(file_name, memmap=False) as hdulist:
-#        lam = np.around(10**hdulist[1].data['loglam'], 4)
-#        flux = np.around(hdulist[1].data['flux'], 4)
-#        z = np.around(hdulist[2].data['z'], 4)
-#    data.append([lam, flux, z])  
-
-#mylist = [ deal_with( 'https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits' % i ) for i in range(4469:4479) ]
-#create data
-pixelDatatable = pd.DataFrame(columns = ['Name', 'Scores', 'Questions'], 
-                   index = ['a', 'b', 'c'])
+#initializing data holder
 data = []
-#define header names
-col_names = ["Pixel","RA", "DEC","PosX","PosY"]
 
-
+#Opening one fits file and checking contents to be able to understand the parameters
 fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo200004469-c03_llc.fits")
     #fits.info(fits_file) #(these print the data)
     #fits.getdata(fits_file, ext=1).columns #(these print the data)
@@ -49,22 +34,28 @@ with fits.open(fits_file) as hdulist:
     header1 = hdulist[1].header
     header2 = hdulist[2].header
 with fits.open(fits_file) as hdulist:
+    print("HEADER 1")
     print(repr(header1[0:20000])) #repr() prints the info into neat columns
+    print("HEADER 2")
     print(repr(header2[0:20000])) #repr() prints the info into neat columns
     print(fits.getdata(fits_file).columns)
 
 
-PixelGrid = np.zeros((454 , 118), dtype=object)
 
+#creating grid for the pixels and populating it with zeroes ( two 454x118 are the dimentions perfectly fit for the data, 1280x1024 was for testing)
+PixelGrid = np.zeros((454,118), dtype=object)
+#PixelGrid = np.zeros((1280,1024), dtype=object)
+
+#creating variable for me to be able to download all my fits files they go from ktwo200004469 to ktwo200004923
 x = 4469
+#loop for me to read and retrieve information from each file
 while x < 4923:
     fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
-    #fits.info(fits_file) #(these print the data)
-    #fits.getdata(fits_file, ext=1).columns #(these print the data)
     with fits.open(fits_file) as hdulist: 
         header1 = hdulist[1].header
         header2 = hdulist[2].header
     with fits.open(fits_file, mode="readonly") as hdulist:
+        #inserting data from each fits file into a variable
         tess_bjds = hdulist[1].data['TIME']
         sap_fluxes = hdulist[1].data['SAP_FLUX']
         pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
@@ -72,203 +63,60 @@ while x < 4923:
         DEC = header2['DEC_OBJ']
         PosX = header2['CRVAL1P']
         PosY = header2['CRVAL2P']
- # Getting Coordinates from Dec/Asc into cartesian
+ # Getting Coordinates from Dec/Asc into cartesian if needed
     Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree)     
-    #print('This is Pixel %d' % x)
-    #print(Coord)
-    #print(PosX)
-    #print(PosY)
-    print (tess_bjds)
-    print (sap_fluxes)
-    data.append([x,RA,DEC,PosX,PosY]) 
+    # creating a table with all the information that I gathered from the fits file into the data holder i created earlier, 
+    #append will insert new rows into the data table with respective information
+    #sap_fluxes[0] and tess_bjds[0] are the first instances(at time = 0) of flux and time, using until i find a way of getting the flux of all the time
+    data.append([x,RA,DEC,PosX,PosY,sap_fluxes[0],tess_bjds[0]]) 
+    #calculating realposX and realposY so i can create a appropriate sized grid since 
+    #CCD positions go from Y 699 to 816(so i remove 699 to start and 0) same for posX(goes from 548 to 95)
     realPosX = (PosX-95)
-    realPosY = (PosY-700)
-    PixelGrid[realPosX, realPosY] = sap_fluxes # check for start at 0 #117y by 453x initial size
-    x += 1
+    realPosY = (PosY-699)
+    #realPosX = PosX #(test with 1280,1024 grid)
+    #realPosY = PosY #(test with 1280,1024 grid)
+    PixelGrid[realPosX, realPosY] = sap_fluxes[0] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
+    x += 1 #for my while loop
 
-    
-
-    
+#printing File number, RA, DEC, CCD X, CCD Y, flux, timestamp    
 pixelDatatable = pd.DataFrame(data)
 print (pixelDatatable)
-# First we need to read in the array of cadence quality flags, let's do
-# that now.
+
+
+# read in the array of cadence quality flags
 with fits.open(fits_file, mode="readonly") as hdulist:
     qual_flags = hdulist[1].data['SAP_QUALITY']
-
 # Start figure and axis.
 fig, ax = plt.subplots()
-
 # Plot the timeseries in black circles.
 ax.plot(tess_bjds, pdcsap_fluxes, 'ko')
-
 # Locate quality flags greater than zero.
 where_gt0 = np.where(qual_flags > 0)[0]
 
-# Overplot the fluxes with quality flags greater than zero in red.
+'''# Overplot the fluxes with quality flags greater than zero in red.
 ax.plot(tess_bjds[where_gt0], pdcsap_fluxes[where_gt0], 'ro')
 
-# Let's label the axes and define a title for the figure.
 fig.suptitle("Light Curve")
 ax.set_ylabel("PDCSAP Flux (e-/s)")
 ax.set_xlabel("Time (TBJD)")
 plt.show()
-
-
-print('The matrix is : \n', PixelGrid) 
-
-#print(Coord)
-#print(PosX)
-#print(PosY)
-####### teste image https://spacetelescope.github.io/notebooks/notebooks/MAST/TESS/beginner_tour_lc_tp/beginner_tour_lc_tp.html
-#Plot the first image of the FLUX Column with WCS overlay.
-#with fits.open(fits_file, mode="readonly") as hdulist:
-#    tpf_data = hdulist[1].data
-#    first_image = sap_fluxes = hdulist[1].data['SAP_FLUX']
-    #first_image = tpf_data['SAP_FLUX'][1]
-#The aperture extension header contains the same WCS as that in the Pixels extension.
-#    wcs = WCS(hdulist[2].header)
-#Plot the first image in the file.
-#    fig = plt.figure(figsize = (6,6))
-#    fig.add_subplot(111, projection = wcs)
-#    plt.imshow(first_image, origin = 'lower', cmap = plt.cm.viridis)
-#    plt.xlabel('RA', fontsize = 14)
-#    plt.ylabel('Dec', fontsize = 14)
-#    plt.grid(axis = 'both', color = 'white', ls = 'solid')
-
-
-    #####
-
-'''with fits.open(fits_file, mode = "readonly") as hdulist:
-    wcs_info = WCS(hdulist[1].header)
-    cal_image = hdulist[1].data
-    header = hdulist[1].header
-# Use the header to determine the mid-point of the exposure time for this FFI.
-mid_time = (header['TSTOP'] + header['TSTART']) / 2
-
-plt.figure(figsize = (12,12))
-
-plt.subplot(111, projection = wcs_info)
-plt.imshow(cal_image, vmin = np.percentile(cal_image,4),vmax = np.percentile(cal_image, 98),origin = "lower")
-plt.xlabel('RA')
-plt.ylabel('Dec')
-plt.title("K2 Calibrated FFI for Module 2, Channel 1, Timestamp %f BKJD" % mid_time)'''
-
-
-
-
-with fits.open(fits_file, mode="readonly") as hdulist:
-    aperture = hdulist[2].data
-# Start figure and axis.
-fig, ax = plt.subplots()
-fig.set_size_inches(12., 8.)
-
-# Display the pixels as an image.
-cax = ax.imshow(aperture, cmap=plt.cm.YlGnBu_r, origin="lower")
-
-# Add a color bar.
-cbar = fig.colorbar(cax)
-
-# Add a title to the plot.
-fig.suptitle("TRAPPIST-1 Aperture - Campaign 12")
-plt.show()
-
-
 '''
 
+print('The matrix is : \n', PixelGrid) 
+#imagePixelGrid = np.reshape(, (118,454))
+imagePixelGrid = np.reshape(PixelGrid, (454,118))#not sure why i need to do this but i cant work with the grid unless i reshape it
+#imagePixelGrid = PixelGrid#testing without reshaping
 
-# Make some random input data so we can run this.
-# You would use values from your input catalog.
-ngal = 20
-numpy.random.seed(123)
-ra = 15 + 0.02*numpy.random.random( (ngal) )    # hours
-dec = -34 + 0.3*numpy.random.random( (ngal) )   # degrees
-size = 0.1 * numpy.random.random( (ngal) )      # arcmin
-e1 = 0.5 * numpy.random.random( (ngal) ) - 0.25
-e2 = 0.5 * numpy.random.random( (ngal) ) - 0.25
+#creating image and saving image, astype() is used since the grid was an OBJECT grid and needed to be converted
+ImageObj = Image.fromarray((PixelGrid).astype(np.uint8))
+ImageObj.save('PixelGridTest.png')
 
-# arcsec is usually the more natural units for sizes, so let's
-# convert to that here to make things simpler later.
-# There are options throughout GalSim to do things in different
-# units, such as arcmin, but arcsec is the default, so it will
-# be simpler if we don't have to worry about that.
-size *= 60  # size now in arcsec
+#testing the pixel image show(not working)
+im=plt.imshow(PixelGrid.astype(float), interpolation='nearest', cmap=cm.Greys_r)
+plt.show()
 
-# Some plausible location at which to center the image.
-# Note that we are now attaching the right units to these
-# so GalSim knows what angle they correspond to.
-cen_ra = numpy.mean(ra) * galsim.hours
-cen_dec = numpy.mean(dec) * galsim.degrees
-
-# GalSim uses CelestialCoord to handle celestial coordinates.
-# It knows how to do all the correct spherical geometry calculations.
-cen_coord = galsim.CelestialCoord(cen_ra, cen_dec)
-print 'cen_coord = ',cen_coord.ra.hms(), cen_coord.dec.dms()
-
-# Define some reasonable pixel size.
-pixel_scale = 0.4  # arcsec / pixel
-
-# Make the full image of some size.
-# Powers of two are typical, but not required.
-image_size = 2048
-image = galsim.Image(image_size, image_size)
-
-# Define the WCS we'll use to connect pixels to celestial coords.
-# For real data, this would usually be read from the FITS header.
-# Here, we'll need to make our own.  The simplest one that properly
-# handles celestial coordinates is TanWCS.  It first goes from
-# pixels to a local tangent plane using a linear affine transformation.
-# Then it projects that tangent plane into the spherical sky coordinates.
-# In our case, we can just let the affine transformation be a uniform
-# square pixel grid with its origin at the center of the image.
-affine_wcs = galsim.PixelScale(pixel_scale).affine().withOrigin(image.center())
-wcs = galsim.TanWCS(affine_wcs, world_origin=cen_coord)
-image.wcs = wcs  # Tell the image to use this WCS
-
-for i in range(ngal):
-    # Get the celestial coord of the galaxy
-    coord = galsim.CelestialCoord(ra[i]*galsim.hours, dec[i]*galsim.degrees)
-    print 'gal coord = ',coord.ra.hms(), coord.dec.dms()
-
-    # Where is it in the image?
-    image_pos = wcs.toImage(coord)
-    print 'position in image = ',image_pos
-
-    # Make some model of the galaxy.
-    flux = size[i]**2 * 1000  # Make bigger things brighter...
-    gal = galsim.Exponential(half_light_radius=size[i], flux=flux)
-    gal = gal.shear(e1=e1[i],e2=e2[i])
-
-    # Pull out a cutout around where we want the galaxy to be.
-    # The bounds needs to be in integers.
-    # The fractional part of the position will go into offset when we draw.
-    ix = int(image_pos.x)
-    iy = int(image_pos.y)
-    bounds = galsim.BoundsI(ix-64, ix+64, iy-64, iy+64)
-
-    # This might be (partially) off the full image, so get the overlap region.
-    bounds = bounds & image.bounds
-    if not bounds.isDefined():
-        print '    This galaxy is completely off the image.'
-        continue
-
-    # This is the portion of the full image where we will draw.  If you try to
-    # draw onto the full image, it will use a lot of memory, but if you go too
-    # small, you might see artifacts at the edges.  You might need to 
-    # experiment a bit with what is a good size cutout.
-    sub_image = image[bounds]
-
-    # Draw the galaxy.  
-    # GalSim by default will center the object at the "true center" of the
-    # image.  We actually want it centered at image_pos, so provide the
-    # difference as the offset parameter.
-    # Also, the default is to overwrite the image.  But we want to add to
-    # the existing image in case galaxies overlap.  Hence add_to_image=True
-    gal.drawImage(image=sub_image, offset=image_pos - sub_image.trueCenter(),
-                  add_to_image=True)
-
-# Probably want to add a little noise...
-image.addNoise(galsim.GaussianNoise(sigma=0.5))
-
-# Write to a file.
-image.write('output.fits')'''
+#saving data into excel for further analysis
+df = pd.DataFrame(PixelGrid).T
+df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcel.xlsx")
+df = pd.DataFrame(pixelDatatable).T
+df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcelComplete.xlsx")
