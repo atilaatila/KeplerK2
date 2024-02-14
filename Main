@@ -52,6 +52,7 @@ Xval = []
 Yval = []
 Zval = []
 
+
 #creating variable for me to be able to download all my fits files they go from ktwo200004469 to ktwo200004923
 x = 4469
 #loop for me to read and retrieve information from each file
@@ -70,22 +71,67 @@ while x < 4923:
         DEC = header2['DEC_OBJ']
         PosX = header2['CRVAL1P']
         PosY = header2['CRVAL2P']
+
+
+        # These values allow translation from RA,DEC to X,Y and vice versa. (new)
+        crpix1 = header2['CRPIX1'] - 1 # X of reference pixel #dont know yet why -1
+        crpix2 = header2['CRPIX2'] - 1 # Y of reference pixel #dont know yet why -1
+        crval1 = header2['CRVAL1'] # RA of reference pixel
+        crval2 = header2['CRVAL2'] # DEC of reference pixel
+        cdelt1 = header2['CDELT1'] # [deg] pixel scale in RA dimension # using [deg] maybe needs to be SS arcsec per pixel
+        cdelt2 = header2['CDELT2'] # [deg] pixel scale in Dec dimension
+        cd1_1 = cdelt1 * header2['PC1_1'] # RA deg per column pixel
+        cd1_2 = cdelt1 * header2['PC1_2'] # RA deg per row pixel
+        cd2_1 = cdelt2 * header2['PC2_1'] # DEC deg per column pixel
+        cd2_2 = cdelt2 *header2['PC2_2'] # DEC deg per row pixel
+
         PixelX, PixelY = w.wcs_world2pix(header2['DEC_OBJ'],header2['Ra_OBJ'], 0)
- # Getting Coordinates from Dec/Asc into cartesian if needed
-    Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree)     
+    # Getting Coordinates from Dec/Asc into cartesian if needed
+    Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree) 
+
+
+    # Find the X,Y values of the galaxy's RA and DEC.
+    det = cd1_1 * cd2_2 - cd1_2 * cd2_1
+
+    cdinv11 = cd2_2 / det
+    cdinv12 = -cd1_2 / det
+    cdinv21 = -cd2_1 / det
+    cdinv22 = cd1_1 / det
+
+    ra0 = crval1 / 180.0 * np.pi
+    dec0 = crval2 / 180.0 * np.pi
+    ra = RA / 180.0 * np.pi
+    dec = DEC / 180.0 * np.pi
+
+    bottom = np.sin(dec)*np.sin(dec0) + np.cos(dec)*np.cos(dec0)*np.cos(ra-ra0)
+
+    xi = np.cos(dec) * np.sin(ra-ra0) / bottom
+    eta = (np.sin(dec)*np.cos(dec0) - np.cos(dec)*np.sin(dec0)*np.cos(ra-ra0)) / bottom
+    xi = xi * 180.0 / np.pi
+    eta = eta * 180.0 / np.pi
+
+    galaxy_X = cdinv11 * xi + cdinv12 * eta + crpix1
+    galaxy_Y = cdinv21 * xi + cdinv22 * eta + crpix2
+
+    #galaxy_X, galaxy_Y
+    Xval.append(galaxy_X)
+    Yval.append(galaxy_Y)
+
     # creating a table with all the information that I gathered from the fits file into the data holder i created earlier, 
     #append will insert new rows into the data table with respective information
     #sap_fluxes[0] and tess_bjds[0] are the first instances(at time = 0) of flux and time, using until i find a way of getting the flux of all the time
-    data.append([x,RA,DEC,PosX,PosY,sap_fluxes[0],tess_bjds[0],PixelX,PixelY]) 
-    Xval.append(RA)
-    Yval.append(DEC)
-    Zval.append(sap_fluxes[0])
+    data.append([x,RA,DEC,PosX,PosY,sap_fluxes[2000],tess_bjds[0],PixelX,PixelY]) 
+
+    #Xval.append(RA)
+    #Yval.append(DEC)
+
+    Zval.append(sap_fluxes[2000])
     #calculating realposX and realposY so i can create a appropriate sized grid since 
     #CCD positions go from Y 699 to 816(so i remove 699 to start and 0) same for posX(goes from 548 to 95)
     realPosX = (PosX-95)
     realPosY = (PosY-699)
     #realPosX = PosX #(test with 1280,1024 grid)
-    PixelGrid[realPosX, realPosY] = sap_fluxes[0] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
+    PixelGrid[realPosX, realPosY] = sap_fluxes[2000] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
     #w = WCS(hdulist[1].header)
     
 
@@ -135,7 +181,7 @@ y = Yval
 z = Zval
 data2 = pd.DataFrame(data={'x':x, 'y':y, 'z':z})
 data2 = data2.pivot(index='x', columns='y', values='z')
-sns.heatmap(data2)
+sns.heatmap(data2, cmap='gray')
 plt.show()
 
 
