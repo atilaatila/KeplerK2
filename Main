@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import numpy as np
 import pandas as pd
-import seaborn as sns
+#import seaborn as sns
+from scipy.interpolate import RectBivariateSpline
 
 
 from astropy import units as u
@@ -22,13 +23,14 @@ from astropy.coordinates import SkyCoord
 #initializing skycoord(to use RA and DEC positioning)
 Coord = SkyCoord(ra=10.625*u.degree, dec=41.2*u.degree, frame='icrs')
 #URL of the fits files
-base_url = "https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000{4468:4684}-c03_llc.fits"
+base_url = '/home/atila/Repository/Kepler/Data/ktwo20000{4468:4677}-c03_lpd-targ.fits'
+#base_url = "https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000{4468:4684}-c03_llc.fits"
 
-#initializing data holder
+#initializing data holderrr
 data = []
-
+#/home/atila/Repository/Kepler/https://archive.stsci.edu/missions/k2/target_pixel_files/c3/200000000/04000/ktwo200004468-c03_lpd-targ.fits.gz
 #Opening one fits file and checking contents to be able to understand the parameters
-fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo200004469-c03_llc.fits")
+fits_file = ('/home/atila/Repository/Kepler/Data/ktwo200004468-c03_lpd-targ.fits')
     #fits.info(fits_file) #(these print the data)
     #fits.getdata(fits_file, ext=1).columns #(these print the data)
 with fits.open(fits_file) as hdulist: 
@@ -42,7 +44,6 @@ with fits.open(fits_file) as hdulist:
     print(fits.getdata(fits_file).columns)
 
 
-
 #creating grid for the pixels and populating it with zeroes ( two 454x118 are the dimentions perfectly fit for the data, 1280x1024 was for testing)
 PixelGrid = np.zeros((454,118), dtype=object)
 #PixelGrid = np.zeros((1280,1024), dtype=object)
@@ -54,10 +55,10 @@ Zval = []
 
 
 #creating variable for me to be able to download all my fits files they go from ktwo200004469 to ktwo200004923
-x = 4469
+x = 4468
 #loop for me to read and retrieve information from each file
-while x < 4923:
-    fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
+while x < 4479:
+    fits_file = ('/home/atila/Repository/Kepler/Data/ktwo20000%d-c03_lpd-targ.fits' % x)
     with fits.open(fits_file) as hdulist: 
         header1 = hdulist[1].header
         header2 = hdulist[2].header
@@ -65,8 +66,8 @@ while x < 4923:
     with fits.open(fits_file, mode="readonly") as hdulist: 
         #inserting data from each fits file into a variable
         tess_bjds = hdulist[1].data['TIME']
-        sap_fluxes = hdulist[1].data['SAP_FLUX']
-        pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
+        flux = hdulist[1].data['FLUX']
+        #pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
         RA = header2['Ra_OBJ']
         DEC = header2['DEC_OBJ']
         PosX = header2['CRVAL1P']
@@ -74,6 +75,7 @@ while x < 4923:
 
 
         # These values allow translation from RA,DEC to X,Y and vice versa. (new)
+        NPIXSAP = header2['NPIXSAP'] #Number of pixels in optimal aperture
         crpix1 = header2['CRPIX1'] - 1 # X of reference pixel #dont know yet why -1
         crpix2 = header2['CRPIX2'] - 1 # Y of reference pixel #dont know yet why -1
         crval1 = header2['CRVAL1'] # RA of reference pixel
@@ -86,6 +88,8 @@ while x < 4923:
         cd2_2 = cdelt2 *header2['PC2_2'] # DEC deg per row pixel
 
         PixelX, PixelY = w.wcs_world2pix(header2['DEC_OBJ'],header2['Ra_OBJ'], 0)
+
+
     # Getting Coordinates from Dec/Asc into cartesian if needed
     Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree) 
 
@@ -120,18 +124,18 @@ while x < 4923:
     # creating a table with all the information that I gathered from the fits file into the data holder i created earlier, 
     #append will insert new rows into the data table with respective information
     #sap_fluxes[0] and tess_bjds[0] are the first instances(at time = 0) of flux and time, using until i find a way of getting the flux of all the time
-    data.append([x,RA,DEC,PosX,PosY,sap_fluxes[2000],tess_bjds[0],PixelX,PixelY]) 
+    data.append([x,RA,DEC,PosX,PosY,flux[0],tess_bjds[0],PixelX,PixelY,NPIXSAP]) 
 
     #Xval.append(RA)
     #Yval.append(DEC)
 
-    Zval.append(sap_fluxes[2000])
+    Zval.append(flux[0])
     #calculating realposX and realposY so i can create a appropriate sized grid since 
     #CCD positions go from Y 699 to 816(so i remove 699 to start and 0) same for posX(goes from 548 to 95)
     realPosX = (PosX-95)
     realPosY = (PosY-699)
     #realPosX = PosX #(test with 1280,1024 grid)
-    PixelGrid[realPosX, realPosY] = sap_fluxes[2000] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
+    PixelGrid[[realPosX, realPosX-1+NPIXSAP], realPosY] = flux[0] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
     #w = WCS(hdulist[1].header)
     
 
@@ -143,15 +147,15 @@ pixelDatatable = pd.DataFrame(data)
 print (pixelDatatable)
 
 
-# read in the array of cadence quality flags
+'''# read in the array of cadence quality flags
 with fits.open(fits_file, mode="readonly") as hdulist:
-    qual_flags = hdulist[1].data['SAP_QUALITY']
+    qual_flags = hdulist[1].data['QUALITY']
 # Start figure and axis.
 fig, ax = plt.subplots()
 # Plot the timeseries in black circles.
-ax.plot(tess_bjds, pdcsap_fluxes, 'ko')
+ax.plot(tess_bjds, flux, 'ko')
 # Locate quality flags greater than zero.
-where_gt0 = np.where(qual_flags > 0)[0]
+where_gt0 = np.where(qual_flags > 0)[0]'''
 
 '''# Overplot the fluxes with quality flags greater than zero in red.
 ax.plot(tess_bjds[where_gt0], pdcsap_fluxes[where_gt0], 'ro')
@@ -162,9 +166,10 @@ ax.set_xlabel("Time (TBJD)")
 plt.show()
 '''
 
+
 print('The matrix is : \n', PixelGrid) 
 #imagePixelGrid = np.reshape(, (118,454))
-imagePixelGrid = np.reshape(PixelGrid, (454,118))#not sure why i need to do this but i cant work with the grid unless i reshape it
+imagePixelGrid = np.reshape(PixelGrid, (454,118))#not sure why i eed to do this but i cant work with the grid unless i reshape it
 #imagePixelGrid = PixelGrid#testing without reshaping
 
 #creating image and saving image, astype() is used since the grid was an OBJECT grid and needed to be converted
@@ -176,25 +181,24 @@ im=plt.imshow(PixelGrid.astype(float), interpolation='nearest', cmap=cm.Greys_r)
 plt.show()
 
 
-x = Xval
-y = Yval
+'''x = PosX 
+y = PosY 
+#x = realPosX 
+#y = realPosY 
+#x = Xval
+#y = Yval
 z = Zval
 data2 = pd.DataFrame(data={'x':x, 'y':y, 'z':z})
 data2 = data2.pivot(index='x', columns='y', values='z')
-sns.heatmap(data2, cmap='gray')
-plt.show()
-
-
-"""shape = np.unique(x).shape[0],np.unique(y).shape[0]
-x_arr = x.reshape(shape)
-y_arr = y.reshape(shape)
-z_arr = z.reshape(shape)
-plt.pcolormesh(x_arr,y_arr,z_arr)"""
+plt.show(data2)
+#im = plt.imshow(data2)
+#plt.show()'''
 
 
 
-#saving data into excel for further analysis
+'''#saving data into excel for further analysis
 df = pd.DataFrame(PixelGrid).T
 df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcel.xlsx")
 df = pd.DataFrame(pixelDatatable).T
-df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcelComplete.xlsx")
+df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcelComplete.xlsx")'''
+

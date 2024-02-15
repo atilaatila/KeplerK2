@@ -1,85 +1,48 @@
-
-from astropy.io import fits
-import matplotlib.pyplot as plt
 import numpy as np
+from astropy.io import fits
+import os
 
-# For the purposes of this tutorial, we just know the MAST URL location of the file we want to examine.
-x = 4469
-fits_file = ("https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000%d-c03_llc.fits" % x)
+dir_data = '/Users/patrick/Documents/boulot/kepler/cambouis/donnees/neptune/fich_bruts/'
+file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
+N_file = len(file_list)
 
-fits.info(fits_file)
-fits.getdata(fits_file, ext=1).columns
+# Loop over the headers to get column and row information
+N_date_ii = []
+col_start = []
+row_start = []
+N_pix = []
 
+for ii in range(N_file):
+    file_name = os.path.join(dir_data, file_list[ii])
+    header = fits.getheader(file_name, ext=1)
+    
+    # From header binary table
+    with fits.open(file_name) as hdul:
+        N_date_ii.append(len(hdul[1].data))
+    
+    # From header image
+    key = header
+    col_start.append(key['CRVAL1P'])
+    row_start.append(key['CRVAL2P'])
+    N_pix.append(key['NAXIS2'])
 
+# Filling up the big array by assembling columns into images
+col_min = min(col_start)
+col_max = max(col_start)
+N_col = col_max - col_min + 1
+row_min = min(row_start)
+row_max = max(row_start[i] + N_pix[i] for i in range(N_file))
+N_row = row_max - row_min + 1
+N_date = max(N_date_ii)
 
-with fits.open(fits_file, mode="readonly") as hdulist:
-    k2_bjds = hdulist[1].data['TIME']
-    sap_fluxes = hdulist[1].data['SAP_FLUX']
-    pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
+# Loop over the files
+image_time_series = np.zeros((N_row, N_date, N_file))
 
-
-## Start figure and axis.
-fig, ax = plt.subplots()
-fig.set_size_inches(12., 8.)
-
-# Plot the timeseries in black circles.
-ax.plot(k2_bjds, pdcsap_fluxes, 'ko')
-
-# Let's label the axes and define a title for the figure.
-fig.suptitle("TRAPPIST-1 Light Curve - Campaign 12")
-ax.set_ylabel("PDCSAP Flux (e-/s)")
-ax.set_xlabel("Time (BKJD)")
-
-# Let's zoom in on the x-axis and y-axis.  We can see a sinusoidal pattern due to starspots.
-# The transits are in there too, but you'd need to clean the light curve before you see them.
-ax.set_xlim(2920., 2950.)
-ax.set_ylim(0.1e7, 0.2e7)
-
-# Adjust the left margin so the y-axis label shows up.
-plt.subplots_adjust(left=0.15)
-plt.show()
-
-# First we need to read in the array of cadence quality flags, let's do
-# that now.
-with fits.open(fits_file, mode="readonly") as hdulist:
-    qual_flags = hdulist[1].data['SAP_QUALITY']
-# Start figure and axis.
-fig, ax = plt.subplots()
-fig.set_size_inches(12., 8.)
-
-# Plot the timeseries in black circles.
-ax.plot(k2_bjds, pdcsap_fluxes, 'ko')
-
-# Locate quality flags greater than zero.
-where_gt0 = np.where(qual_flags > 0)[0]
-
-# Overplot the fluxes with quality flags greater than zero in red.
-ax.plot(k2_bjds[where_gt0], pdcsap_fluxes[where_gt0], 'ro')
-
-'''# Let's zoom in on the x-axis and y-axis.
-ax.set_xlim(2920., 2950.)
-ax.set_ylim(0.1e7, 0.2e7)'''
-
-# Let's label the axes and define a title for the figure.
-fig.suptitle("TRAPPIST-1 Light Curve - Campaign 12")
-ax.set_ylabel("PDCSAP Flux (e-/s)")
-ax.set_xlabel("Time (TBJD)")
-plt.show()
-
-
-with fits.open(fits_file, mode="readonly") as hdulist:
-    aperture = hdulist[2].data
-
-# Start figure and axis.
-fig, ax = plt.subplots()
-fig.set_size_inches(12., 8.)
-
-# Display the pixels as an image.
-cax = ax.imshow(aperture, cmap=plt.cm.YlGnBu_r, origin="lower")
-
-# Add a color bar.
-cbar = fig.colorbar(cax)
-
-# Add a title to the plot.
-fig.suptitle("TRAPPIST-1 Aperture - Campaign 12")
-plt.show()
+for ii in range(N_file):
+    file_name = os.path.join(dir_data, file_list[ii])
+    with fits.open(file_name) as hdul:
+        tab = hdul[1].data
+        col_sap_ii = tab.field(3)  # Assuming the 4th field is at index 3
+        ind_y_min = row_start[ii] - row_min
+        ind_y_max = ind_y_min + N_pix[ii]
+        image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
