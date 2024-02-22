@@ -1,48 +1,89 @@
-import numpy as np
 from astropy.io import fits
-import os
+import numpy as np
+import os, sys
+import matplotlib.pyplot as plt
 
-dir_data = '/Users/patrick/Documents/boulot/kepler/cambouis/donnees/neptune/fich_bruts/'
+# Directory path for data institute
+#dir_data = '/home/atila/Repository/Kepler/Data/'
+# Directory path for data Home
+dir_data = 'D:\Kepler Code'
+
+
+# Get the list of FITS files
 file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
 N_file = len(file_list)
 
-# Loop over the headers to get column and row information
-N_date_ii = []
-col_start = []
-row_start = []
-N_pix = []
+# Initialize arrays to store information
+N_date_ii = np.zeros(N_file)
+col_start = np.zeros(N_file)
+row_start = np.zeros(N_file)
+N_pix = np.zeros(N_file)
 
+# Loop over the headers to get column and row information
 for ii in range(N_file):
     file_name = os.path.join(dir_data, file_list[ii])
-    header = fits.getheader(file_name, ext=1)
-    
+    with fits.open(file_name) as hdulist: 
+        header1 = hdulist[1].header
+        header2 = hdulist[2].header
+    header = fits.getheader(file_name)
+    #print(repr(header2))
+
     # From header binary table
-    with fits.open(file_name) as hdul:
-        N_date_ii.append(len(hdul[1].data))
-    
+    N_date_ii[ii] = header2['NAXIS2']
+
     # From header image
-    key = header
-    col_start.append(key['CRVAL1P'])
-    row_start.append(key['CRVAL2P'])
-    N_pix.append(key['NAXIS2'])
+    col_start[ii] = header2['CRVAL1P']
+    row_start[ii] = header2['CRVAL2P']
+
+    N_pix[ii] = header2['NAXIS2']
 
 # Filling up the big array by assembling columns into images
+# A big grid to place all the column target pixel files
 col_min = min(col_start)
 col_max = max(col_start)
-N_col = col_max - col_min + 1
+N_col = int(col_max - col_min + 1)
+
 row_min = min(row_start)
-row_max = max(row_start[i] + N_pix[i] for i in range(N_file))
-N_row = row_max - row_min + 1
-N_date = max(N_date_ii)
+row_max = max(row_start + N_pix)
+N_row = int(row_max - row_min + 1)
+
+N_date = int(max(N_date_ii))
 
 # Loop over the files
 image_time_series = np.zeros((N_row, N_date, N_file))
-
 for ii in range(N_file):
     file_name = os.path.join(dir_data, file_list[ii])
-    with fits.open(file_name) as hdul:
-        tab = hdul[1].data
-        col_sap_ii = tab.field(3)  # Assuming the 4th field is at index 3
-        ind_y_min = row_start[ii] - row_min
-        ind_y_max = ind_y_min + N_pix[ii]
-        image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+    tab = fits.getdata(file_name, ext=1)
+
+    col_sap_ii = tab['FLUX']
+
+    ind_y_min = int(row_start[ii] - row_min)
+    ind_y_max = int(ind_y_min + N_pix[ii])
+    #desired_shape = col_sap_ii.shape
+    #image_time_series_reshaped = image_time_series.reshape(desired_shape)
+    #image_time_series_reshaped[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
+    #image_time_series.reshape(desired_shape)
+    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii
+    #print(ind_y_min, ind_y_max, N_date_ii[ii])
+    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
+    image_time_series[ind_y_min : ind_y_max, : col_sap_ii[ii].shape[1], ii] = col_sap_ii[ii]
+
+# Calculate mean and median
+ima_mean = np.mean(image_time_series, axis=1)
+ima_median = np.median(image_time_series, axis=1)
+
+# Choose an index for the image to display
+index_to_display = 0 # You can change this to any valid index based on your data
+
+# Get the transposed image to display
+image_to_display = image_time_series[:, :, index_to_display].T
+
+# Display the transposed image using Matplotlib
+plt.imshow(image_to_display, cmap='viridis')  # You can choose a different colormap if needed
+plt.title(f"Image Time Series - Index {index_to_display}")
+plt.xlabel("Pixel Row")  # Swap labels since rows and columns are swapped
+plt.ylabel("Time")       # Swap labels since rows and columns are swapped
+plt.colorbar(label="Flux")
+
+# Show the plot
+plt.show()

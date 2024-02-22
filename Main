@@ -30,7 +30,10 @@ base_url = '/home/atila/Repository/Kepler/Data/ktwo20000{4468:4677}-c03_lpd-targ
 data = []
 #/home/atila/Repository/Kepler/https://archive.stsci.edu/missions/k2/target_pixel_files/c3/200000000/04000/ktwo200004468-c03_lpd-targ.fits.gz
 #Opening one fits file and checking contents to be able to understand the parameters
-fits_file = ('/home/atila/Repository/Kepler/Data/ktwo200004468-c03_lpd-targ.fits')
+
+
+#fits_file = ('/home/atila/Repository/Kepler/Data/ktwo200004468-c03_lpd-targ.fits')
+fits_file = ('D:/Kepler Code/ktwo200004468-c03_lpd-targ.fits')
     #fits.info(fits_file) #(these print the data)
     #fits.getdata(fits_file, ext=1).columns #(these print the data)
 with fits.open(fits_file) as hdulist: 
@@ -58,7 +61,9 @@ Zval = []
 x = 4468
 #loop for me to read and retrieve information from each file
 while x < 4479:
-    fits_file = ('/home/atila/Repository/Kepler/Data/ktwo20000%d-c03_lpd-targ.fits' % x)
+    
+    fits_file = ('D:/Kepler Code/ktwo20000%d-c03_lpd-targ.fits' % x)
+    #fits_file = ('/home/atila/Repository/Kepler/Data/ktwo20000%d-c03_lpd-targ.fits' % x)
     with fits.open(fits_file) as hdulist: 
         header1 = hdulist[1].header
         header2 = hdulist[2].header
