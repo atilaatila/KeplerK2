@@ -2,6 +2,9 @@ from astropy.io import fits
 import numpy as np
 import os, sys
 import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+from matplotlib.animation import FuncAnimation, FFMpegWriter
+from matplotlib.animation import PillowWriter
 
 # Directory path for data institute
 #dir_data = '/home/atila/Repository/Kepler/Data/'
@@ -29,7 +32,7 @@ for ii in range(N_file):
     #print(repr(header2))
 
     # From header binary table
-    N_date_ii[ii] = header2['NAXIS2']
+    N_date_ii[ii] = header1['NAXIS2']
 
     # From header image
     col_start[ii] = header2['CRVAL1P']
@@ -66,24 +69,55 @@ for ii in range(N_file):
     #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii
     #print(ind_y_min, ind_y_max, N_date_ii[ii])
     #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
-    image_time_series[ind_y_min : ind_y_max, : col_sap_ii[ii].shape[1], ii] = col_sap_ii[ii]
+    #image_time_series[ind_y_min : ind_y_max, : col_sap_ii[ii].shape[1], ii] = col_sap_ii[ii]
+    image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
 
 # Calculate mean and median
 ima_mean = np.mean(image_time_series, axis=1)
 ima_median = np.median(image_time_series, axis=1)
 
-# Choose an index for the image to display
-index_to_display = 0 # You can change this to any valid index based on your data
-
-# Get the transposed image to display
-image_to_display = image_time_series[:, :, index_to_display].T
-
-# Display the transposed image using Matplotlib
-plt.imshow(image_to_display, cmap='viridis')  # You can choose a different colormap if needed
-plt.title(f"Image Time Series - Index {index_to_display}")
-plt.xlabel("Pixel Row")  # Swap labels since rows and columns are swapped
-plt.ylabel("Time")       # Swap labels since rows and columns are swapped
+# Display static image
+plt.rcParams["figure.figsize"] = [7.00, 3.50]
+plt.rcParams["figure.autolayout"] = True
+data = image_time_series[:, 0, :]
+plt.imshow(data, vmin=0, vmax=50)
+plt.title("Static Image")
+plt.xlabel("Pixel Row")
+plt.ylabel("Time")
 plt.colorbar(label="Flux")
+plt.show()
 
-# Show the plot
+# Create a figure and axis
+fig, ax = plt.subplots(figsize=(7.00, 3.50))
+ax.set_xticks([])
+ax.set_yticks([])
+ax.grid(False)
+# Function to update the plot for each frame
+def update(frame):
+    print(f"Updating frame {frame}")
+    frame_data = image_time_series[:, frame, :]
+    ax.clear()
+    ax.imshow(frame_data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+    ax.set_title(f"Frame {frame}")
+    ax.set_xlabel("Pixel Row")
+    ax.set_ylabel("Time")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(False)
+    
+
+save_directory = 'D:\\Kepler Code\\KeplerK2'
+
+if not os.path.exists(save_directory):
+    os.makedirs(save_directory)
+
+save_path = 'image_time_series_animation.gif'
+
+# Create the animation
+animation = FuncAnimation(fig, update, frames=image_time_series.shape[2], interval=200)
+
+# Specify the writer explicitly to handle the .gif extension
+writer = PillowWriter(fps=10)
+animation.save(save_path, writer=writer)
+
 plt.show()
