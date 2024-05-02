@@ -1,209 +1,205 @@
-#https://github.com/barentsen
-#https://github.com/barentsen/k2mosaic
-#https://github.com/KeplerGO/k2flix
-#https://keplergo.github.io/KeplerScienceWebsite/software.html
-#
-#import galsim
-import astropy
 from astropy.io import fits
-from astropy.wcs import WCS
-from astropy.table import QTable, Table, Column
-from PIL import Image
-from astropy import units as u
-import matplotlib.pyplot as plt
-import matplotlib.cm as cm
 import numpy as np
-import pandas as pd
-#import seaborn as sns
-from scipy.interpolate import RectBivariateSpline
+import os
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
+from scipy.stats import scoreatpercentile
+from scipy.ndimage import median_filter, label, center_of_mass
 
 
-from astropy import units as u
-from astropy.coordinates import SkyCoord
-#initializing skycoord(to use RA and DEC positioning)
-Coord = SkyCoord(ra=10.625*u.degree, dec=41.2*u.degree, frame='icrs')
-#URL of the fits files
-base_url = '/home/atila/Repository/Kepler/Data/ktwo20000{4468:4677}-c03_lpd-targ.fits'
-#base_url = "https://archive.stsci.edu/missions/k2/lightcurves/c3/200000000/04000/ktwo20000{4468:4684}-c03_llc.fits"
+def read_fits_data(dir_data):
+    file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
+    N_file = len(file_list)
 
-#initializing data holderrr
-data = []
-#/home/atila/Repository/Kepler/https://archive.stsci.edu/missions/k2/target_pixel_files/c3/200000000/04000/ktwo200004468-c03_lpd-targ.fits.gz
-#Opening one fits file and checking contents to be able to understand the parameters
+    N_date_ii = np.zeros(N_file)
+    col_start = np.zeros(N_file)
+    row_start = np.zeros(N_file)
+    N_pix = np.zeros(N_file)
+
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            header1 = hdulist[1].header
+            header2 = hdulist[2].header
+
+        N_date_ii[ii] = header1['NAXIS2']
+        col_start[ii] = header2['CRVAL1P']
+        row_start[ii] = header2['CRVAL2P']
+        N_pix[ii] = header2['NAXIS2']
+
+    col_min = min(col_start)
+    col_max = max(col_start)
+    N_col = int(col_max - col_min + 1)
+
+    row_min = min(row_start)
+    row_max = max(row_start + N_pix)
+    N_row = int(row_max - row_min + 1)
+    N_date = int(max(N_date_ii))
+
+    time_time_series = np.zeros((N_date, N_file))
+    image_time_series_raw = np.zeros((N_row, N_date, N_file))
+    image_time_series_cor = np.zeros((N_row, N_date, N_file))
+
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            tab = hdulist[1].data
+
+        ind_y_min = int(row_start[ii] - row_min)
+        ind_y_max = int(ind_y_min + N_pix[ii])
+
+        t_ii = tab['TIME']
+        time_time_series[:, ii] = t_ii
+
+        col_sap_ii = tab['FLUX']
+        image_time_series_raw[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+
+        image_time_series_cor[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+
+    return N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor
 
 
-#fits_file = ('/home/atila/Repository/Kepler/Data/ktwo200004468-c03_lpd-targ.fits')
-fits_file = ('D:/Kepler Code/ktwo200004468-c03_lpd-targ.fits')
-    #fits.info(fits_file) #(these print the data)
-    #fits.getdata(fits_file, ext=1).columns #(these print the data)
-with fits.open(fits_file) as hdulist: 
-    header1 = hdulist[1].header
-    header2 = hdulist[2].header
-with fits.open(fits_file) as hdulist:
-    print("HEADER 1")
-    print(repr(header1[0:20000])) #repr() prints the info into neat columns
-    print("HEADER 2")
-    print(repr(header2[0:20000])) #repr() prints the info into neat columns
-    print(fits.getdata(fits_file).columns)
+def preprocess_data(image_time_series_raw, percentile_value=1):
+    # Calculate percentile-based median
+    N_row, N_file, N_date_good = image_time_series_raw.shape[0], image_time_series_raw.shape[2], image_time_series_raw.shape[1]
+
+    percentile_median = np.zeros((N_row, N_file))
+    for i in range(N_row):
+        for j in range(N_file):
+            percentile_median[i, j] = scoreatpercentile(image_time_series_raw[i, :, j], percentile_value)
+
+    # Apply percentile-based median filtering
+    for i in range(N_date_good):
+        for j in range(N_file):
+            image_time_series_raw[:, i, j] -= percentile_median[:, j]
+
+    # Remove NaN frames
+    ind_nan = []
+    ind_good = []
+    for ii in range(N_date_good):
+        ima_ii = np.squeeze(image_time_series_raw[:, ii, :])
+        ind_nan_ii = np.where(np.isnan(ima_ii))[0]
+        if len(ind_nan_ii) > 0:
+            ind_nan.append(ii)
+            print('Hey, this is a NaN frame:', ii)
+        else:
+            ind_good.append(ii)
+
+    N_date_good = len(ind_good)
+
+    # New time series without NaN frames
+    image_time_series_good = image_time_series_raw[:, ind_good, :]
+
+    # Calculate mean and median without NaN frames
+    ima_good_mean = np.mean(image_time_series_good, axis=1)
+    ima_good_median = np.median(image_time_series_good, axis=1)
+
+    # Reshape the array such that time is the last dimension
+    image_time_series_reshape = np.transpose(image_time_series_good, (0, 2, 1))
+
+    return ima_good_mean, ima_good_median, image_time_series_reshape
 
 
-#creating grid for the pixels and populating it with zeroes ( two 454x118 are the dimentions perfectly fit for the data, 1280x1024 was for testing)
-PixelGrid = np.zeros((454,118), dtype=object)
-#PixelGrid = np.zeros((1280,1024), dtype=object)
-PixelGrid2 = np.zeros((1280,1024), dtype=object)
+def display_static_image(data, save_path=None):
+    plt.rcParams["figure.figsize"] = [7.00, 3.50]
+    plt.rcParams["figure.autolayout"] = True
+    plt.imshow(data, vmin=0, vmax=50)
+    plt.title("Static Image")
+    plt.xlabel("Pixel Row")
+    plt.ylabel("Time")
+    plt.colorbar(label="Flux")
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
 
-Xval = []
-Yval = []
-Zval = []
+def segment_larger_stars(frame_data, threshold):
+    # Perform segmentation to isolate larger stars
+    binary_image = frame_data > threshold
+    labeled_image, num_features = label(binary_image)
+    return labeled_image, num_features
+
+def calculate_centroids(labeled_image, num_features):
+    centroids = []
+    for label_idx in range(1, num_features + 1):
+        centroid = center_of_mass(labeled_image, None, label_idx)
+        centroids.append(centroid)
+    return centroids
+
+def find_star_centroids(frame_data, threshold_value):
+    binary_image = frame_data > threshold_value
+    labeled_image, num_features = label(binary_image)
+    centroids = []
+    for label_idx in range(1, num_features + 1):
+        centroid = center_of_mass(binary_image, labeled_image, label_idx)
+        centroids.append(centroid)
+    return centroids
+
+# Main function to process the time series and track centroids
+def track_centroids(image_time_series_reshape, threshold):
+    centroids_time_series = []
+    for frame_data in image_time_series_reshape:
+        labeled_image, num_features = segment_larger_stars(frame_data, threshold)
+        centroids = calculate_centroids(labeled_image, num_features)
+        centroids_time_series.append(centroids)
+    return centroids_time_series
+
+def create_animation(image_time_series_reshape, threshold_value):
+    fig_cleaned, ax_cleaned = plt.subplots(figsize=(7.00, 3.50))
+    ax_cleaned.set_xticks([])
+    ax_cleaned.set_yticks([])
+    ax_cleaned.grid(False)
+
+    # Function to update the plot for each frame in the cleaned animation
+    def update_cleaned(frame):
+        if frame < image_time_series_reshape.shape[2]:
+            frame_data_cleaned = image_time_series_reshape[:, :, frame]
+
+            ax_cleaned.clear()
+            ax_cleaned.imshow(frame_data_cleaned, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+            ax_cleaned.set_title(f"Frame {frame} - Cleaned")
+            ax_cleaned.set_xlabel("Pixel Row")
+            ax_cleaned.set_ylabel("Time")
+            ax_cleaned.set_xticks([])
+            ax_cleaned.set_yticks([])
+            ax_cleaned.grid(False)
+
+            # Plot centroids
+            centroids = find_star_centroids(frame_data_cleaned, threshold_value)
+            for centroid in centroids:
+                plt.plot(centroid[1], centroid[0], 'ro')  # Plotting centroid coordinates
 
 
-#creating variable for me to be able to download all my fits files they go from ktwo200004469 to ktwo200004923
-x = 4468
-#loop for me to read and retrieve information from each file
-while x < 4479:
+    # Create the cleaned animation and set the speed
+    animation_cleaned = FuncAnimation(fig_cleaned, update_cleaned, frames=image_time_series_reshape.shape[2], interval=100)
+
+    # Specify the writer explicitly to handle the .gif extension
+    save_path_cleaned = 'image_time_series_animation_cleaned.gif'
+    writer_cleaned = PillowWriter(fps=50)  # Adjust the fps for desired speed
+    animation_cleaned.save(save_path_cleaned, writer=writer_cleaned)
+
+    plt.show()
+
+def main():
+    # Directory path for data
+    dir_data = 'D:\Kepler Code'
     
-    fits_file = ('D:/Kepler Code/ktwo20000%d-c03_lpd-targ.fits' % x)
-    #fits_file = ('/home/atila/Repository/Kepler/Data/ktwo20000%d-c03_lpd-targ.fits' % x)
-    with fits.open(fits_file) as hdulist: 
-        header1 = hdulist[1].header
-        header2 = hdulist[2].header
-        w = WCS(header2)
-    with fits.open(fits_file, mode="readonly") as hdulist: 
-        #inserting data from each fits file into a variable
-        tess_bjds = hdulist[1].data['TIME']
-        flux = hdulist[1].data['FLUX']
-        #pdcsap_fluxes = hdulist[1].data['PDCSAP_FLUX']
-        RA = header2['Ra_OBJ']
-        DEC = header2['DEC_OBJ']
-        PosX = header2['CRVAL1P']
-        PosY = header2['CRVAL2P']
-
-
-        # These values allow translation from RA,DEC to X,Y and vice versa. (new)
-        NPIXSAP = header2['NPIXSAP'] #Number of pixels in optimal aperture
-        crpix1 = header2['CRPIX1'] - 1 # X of reference pixel #dont know yet why -1
-        crpix2 = header2['CRPIX2'] - 1 # Y of reference pixel #dont know yet why -1
-        crval1 = header2['CRVAL1'] # RA of reference pixel
-        crval2 = header2['CRVAL2'] # DEC of reference pixel
-        cdelt1 = header2['CDELT1'] # [deg] pixel scale in RA dimension # using [deg] maybe needs to be SS arcsec per pixel
-        cdelt2 = header2['CDELT2'] # [deg] pixel scale in Dec dimension
-        cd1_1 = cdelt1 * header2['PC1_1'] # RA deg per column pixel
-        cd1_2 = cdelt1 * header2['PC1_2'] # RA deg per row pixel
-        cd2_1 = cdelt2 * header2['PC2_1'] # DEC deg per column pixel
-        cd2_2 = cdelt2 *header2['PC2_2'] # DEC deg per row pixel
-
-        PixelX, PixelY = w.wcs_world2pix(header2['DEC_OBJ'],header2['Ra_OBJ'], 0)
-
-
-    # Getting Coordinates from Dec/Asc into cartesian if needed
-    Coord = SkyCoord((header2['Ra_OBJ'])*u.degree,(header2['DEC_OBJ'])*u.degree) 
-
-
-    # Find the X,Y values of the galaxy's RA and DEC.
-    det = cd1_1 * cd2_2 - cd1_2 * cd2_1
-
-    cdinv11 = cd2_2 / det
-    cdinv12 = -cd1_2 / det
-    cdinv21 = -cd2_1 / det
-    cdinv22 = cd1_1 / det
-
-    ra0 = crval1 / 180.0 * np.pi
-    dec0 = crval2 / 180.0 * np.pi
-    ra = RA / 180.0 * np.pi
-    dec = DEC / 180.0 * np.pi
-
-    bottom = np.sin(dec)*np.sin(dec0) + np.cos(dec)*np.cos(dec0)*np.cos(ra-ra0)
-
-    xi = np.cos(dec) * np.sin(ra-ra0) / bottom
-    eta = (np.sin(dec)*np.cos(dec0) - np.cos(dec)*np.sin(dec0)*np.cos(ra-ra0)) / bottom
-    xi = xi * 180.0 / np.pi
-    eta = eta * 180.0 / np.pi
-
-    galaxy_X = cdinv11 * xi + cdinv12 * eta + crpix1
-    galaxy_Y = cdinv21 * xi + cdinv22 * eta + crpix2
-
-    #galaxy_X, galaxy_Y
-    Xval.append(galaxy_X)
-    Yval.append(galaxy_Y)
-
-    # creating a table with all the information that I gathered from the fits file into the data holder i created earlier, 
-    #append will insert new rows into the data table with respective information
-    #sap_fluxes[0] and tess_bjds[0] are the first instances(at time = 0) of flux and time, using until i find a way of getting the flux of all the time
-    data.append([x,RA,DEC,PosX,PosY,flux[0],tess_bjds[0],PixelX,PixelY,NPIXSAP]) 
-
-    #Xval.append(RA)
-    #Yval.append(DEC)
-
-    Zval.append(flux[0])
-    #calculating realposX and realposY so i can create a appropriate sized grid since 
-    #CCD positions go from Y 699 to 816(so i remove 699 to start and 0) same for posX(goes from 548 to 95)
-    realPosX = (PosX-95)
-    realPosY = (PosY-699)
-    #realPosX = PosX #(test with 1280,1024 grid)
-    PixelGrid[[realPosX, realPosX-1+NPIXSAP], realPosY] = flux[0] # inserting flux from time=0 (later make into all fluxes) into each respective X,Y positions
-    #w = WCS(hdulist[1].header)
+    # Read FITS data
+    N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor = read_fits_data(dir_data)
     
+    # Preprocess data
+    ima_good_mean, ima_good_median, image_time_series_reshape = preprocess_data(image_time_series_raw)
+    
+    # Save and display static image
+    static_image_path = 'static_image.png'
+    display_static_image(image_time_series_reshape[:, :, 0], save_path=static_image_path)
+    
+    # Set the threshold value for star identification
+    threshold_value = 100
+    
+    # Create animation with centroids
+    create_animation(image_time_series_reshape, threshold_value)
+    
+    plt.show()  # Ensure all plots are displayed
 
-
-    x += 1 #for my while loop
-
-#printing File number, RA, DEC, CCD X, CCD Y, flux, timestamp    
-pixelDatatable = pd.DataFrame(data)
-print (pixelDatatable)
-
-
-'''# read in the array of cadence quality flags
-with fits.open(fits_file, mode="readonly") as hdulist:
-    qual_flags = hdulist[1].data['QUALITY']
-# Start figure and axis.
-fig, ax = plt.subplots()
-# Plot the timeseries in black circles.
-ax.plot(tess_bjds, flux, 'ko')
-# Locate quality flags greater than zero.
-where_gt0 = np.where(qual_flags > 0)[0]'''
-
-'''# Overplot the fluxes with quality flags greater than zero in red.
-ax.plot(tess_bjds[where_gt0], pdcsap_fluxes[where_gt0], 'ro')
-
-fig.suptitle("Light Curve")
-ax.set_ylabel("PDCSAP Flux (e-/s)")
-ax.set_xlabel("Time (TBJD)")
-plt.show()
-'''
-
-
-print('The matrix is : \n', PixelGrid) 
-#imagePixelGrid = np.reshape(, (118,454))
-imagePixelGrid = np.reshape(PixelGrid, (454,118))#not sure why i eed to do this but i cant work with the grid unless i reshape it
-#imagePixelGrid = PixelGrid#testing without reshaping
-
-#creating image and saving image, astype() is used since the grid was an OBJECT grid and needed to be converted
-ImageObj = Image.fromarray((PixelGrid).astype(np.uint8))
-ImageObj.save('PixelGridTest.png')
-
-#testing the pixel image show(not working)
-im=plt.imshow(PixelGrid.astype(float), interpolation='nearest', cmap=cm.Greys_r)
-plt.show()
-
-
-'''x = PosX 
-y = PosY 
-#x = realPosX 
-#y = realPosY 
-#x = Xval
-#y = Yval
-z = Zval
-data2 = pd.DataFrame(data={'x':x, 'y':y, 'z':z})
-data2 = data2.pivot(index='x', columns='y', values='z')
-plt.show(data2)
-#im = plt.imshow(data2)
-#plt.show()'''
-
-
-
-'''#saving data into excel for further analysis
-df = pd.DataFrame(PixelGrid).T
-df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcel.xlsx")
-df = pd.DataFrame(pixelDatatable).T
-df.to_excel(excel_writer = "D:/Kepler Code/KeplerK2/gridexcelComplete.xlsx")'''
-
+if __name__ == "__main__":
+    main()

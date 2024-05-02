@@ -1,0 +1,98 @@
+x_1D = 0:453;
+y_1D = 1:75; gotta change
+flux = zeros(75,100);
+figure
+imagesc(flux)
+set(gca,'dataaspectratio',[1 1 1])
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+flux(34:37,56:58) = 1;
+imagesc(flux)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+flux(32:33,59:60) = 0.5;
+imagesc(flux)
+x_1D = 1:100;
+y_1D = 1:75;
+
+% Meshgrid: turns 1D coordinates into arrays
+[x_2D,y_2D] = meshgrid(x_1D,y_1D);
+figure
+imagesc(x_2D)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+
+figure
+imagesc(y_2D)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+title('y 2D')
+title('x 2D')
+title('Flux')
+title('Flux frame #i')
+
+% Subframes (I choose 3)
+x_start = [50, 61, 92];
+y_start = [30, 49, 62];
+box_width = [20 15 18];
+x_end  = x_start + box_width;
+y_end = y_start + box_width;
+ 
+i = 1;
+subframe = flux(y_start(i):y_end(i),x_start(i):x_end(i));
+figure
+imagesc(subframe)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+subframe_x_2D = x_2D(y_start(i):y_end(i),x_start(i):x_end(i));
+subframe_y_2D = y_2D(y_start(i):y_end(i),x_start(i):x_end(i));
+figure
+imagesc(subframe_x_2D)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+figure
+imagesc(subframe_y_2D)
+set(gca,'dataaspectratio',[1 1 1],'ydir','normal')
+title('x 2D subframe')
+title('y 2D subframe')
+title('Flux frame i subframe')
+
+x_centroid = sum(sum(subframe_x_2D.*subframe))./sum(sum(subframe))
+y_centroid = sum(sum(subframe_y_2D.*subframe))./sum(sum(subframe))
+
+
+
+
+X_i	Y_i	X_f	Y_f
+20	138	30	144
+6	145	13	152
+82	128	88	135
+140	82	148	88
+183	107	192	114
+208	100	216	108
+223	102	231	107
+201	59	207	64
+204	68	212	72
+295	71	302	78
+346	72	353	77
+355	57	362	63
+345	43	356	51
+351	36	358	43
+375	44	380	49
+416	37	422	43
+425	19	431	45
+
+Centroid for ROI 1: x = 25.627965011516277, y = 140.84995473699433
+Centroid for ROI 2: x = 9.612545527171955, y = 148.3524544188168
+Centroid for ROI 3: x = 84.4844799257339, y = 131.11433107796975
+Centroid for ROI 4: x = 144.71004083910177, y = 84.8806953412412
+Centroid for ROI 5: x = 187.57930009162757, y = 109.93159077548971
+Centroid for ROI 6: x = 211.8654879415094, y = 103.48149485706502
+Centroid for ROI 7: x = 227.17390327043447, y = 104.23395733725405
+Centroid for ROI 8: x = 203.98191193303012, y = 60.88123047881944
+Centroid for ROI 9: x = 208.41424747053574, y = 69.65074615992843
+Centroid for ROI 10: x = 298.50436390837314, y = 74.04423365930839
+Centroid for ROI 11: x = 349.3498240490083, y = 74.44263252537237
+Centroid for ROI 12: x = 358.04953046342615, y = 60.18479894434925
+Centroid for ROI 13: x = 350.8084821550734, y = 46.913976621901845
+Centroid for ROI 14: x = 354.76118811233863, y = 39.326026854454035
+Centroid for ROI 15: x = 377.5171371618102, y = 46.7018884536355
+Centroid for ROI 16: x = 419.110574450036, y = 40.0911846166223
+Centroid for ROI 17: x = 428.2374939738486, y = 42.84888183653909
+

@@ -1,123 +1,222 @@
 from astropy.io import fits
 import numpy as np
-import os, sys
+import os
 import matplotlib.pyplot as plt
-from matplotlib.colors import Normalize
-from matplotlib.animation import FuncAnimation, FFMpegWriter
-from matplotlib.animation import PillowWriter
+from matplotlib.animation import FuncAnimation, PillowWriter
+from scipy.stats import scoreatpercentile
+from scipy.ndimage import median_filter, label, center_of_mass
+import csv
 
-# Directory path for data institute
-#dir_data = '/home/atila/Repository/Kepler/Data/'
-# Directory path for data Home
-dir_data = 'D:\Kepler Code'
+def read_fits_data(dir_data):
+    file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
+    N_file = len(file_list)
+    N_date_ii = np.zeros(N_file)
+    col_start = np.zeros(N_file)
+    row_start = np.zeros(N_file)
+    N_pix = np.zeros(N_file)
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            header1 = hdulist[1].header
+            header2 = hdulist[2].header
+        N_date_ii[ii] = header1['NAXIS2']
+        col_start[ii] = header2['CRVAL1P']
+        row_start[ii] = header2['CRVAL2P']
+        N_pix[ii] = header2['NAXIS2']
+    col_min = min(col_start)
+    col_max = max(col_start)
+    N_col = int(col_max - col_min + 1)
+    row_min = min(row_start)
+    row_max = max(row_start + N_pix)
+    N_row = int(row_max - row_min + 1)
+    N_date = int(max(N_date_ii))
+    time_time_series = np.zeros((N_date, N_file))
+    image_time_series_raw = np.zeros((N_row, N_date, N_file))
+    image_time_series_cor = np.zeros((N_row, N_date, N_file))
+
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            tab = hdulist[1].data
+        ind_y_min = int(row_start[ii] - row_min)
+        ind_y_max = int(ind_y_min + N_pix[ii])
+        t_ii = tab['TIME']
+        time_time_series[:, ii] = t_ii
+        col_sap_ii = tab['FLUX']
+        image_time_series_raw[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+        image_time_series_cor[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+    return N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor
 
 
-# Get the list of FITS files
-file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
-N_file = len(file_list)
+def preprocess_data(image_time_series_raw, percentile_value=1):
+    # Calculate percentile-based median
+    N_row, N_file, N_date_good = image_time_series_raw.shape[0], image_time_series_raw.shape[2], image_time_series_raw.shape[1]
 
-# Initialize arrays to store information
-N_date_ii = np.zeros(N_file)
-col_start = np.zeros(N_file)
-row_start = np.zeros(N_file)
-N_pix = np.zeros(N_file)
+    percentile_median = np.zeros((N_row, N_file))
+    for i in range(N_row):
+        for j in range(N_file):
+            percentile_median[i, j] = scoreatpercentile(image_time_series_raw[i, :, j], percentile_value)
 
-# Loop over the headers to get column and row information
-for ii in range(N_file):
-    file_name = os.path.join(dir_data, file_list[ii])
-    with fits.open(file_name) as hdulist: 
-        header1 = hdulist[1].header
-        header2 = hdulist[2].header
-    header = fits.getheader(file_name)
-    #print(repr(header2))
+    # Apply percentile-based median filtering
+    for i in range(N_date_good):
+        for j in range(N_file):
+            image_time_series_raw[:, i, j] -= percentile_median[:, j]
 
-    # From header binary table
-    N_date_ii[ii] = header1['NAXIS2']
+    # Remove NaN frames
+    ind_nan = []
+    ind_good = []
+    for ii in range(N_date_good):
+        ima_ii = np.squeeze(image_time_series_raw[:, ii, :])
+        ind_nan_ii = np.where(np.isnan(ima_ii))[0]
+        if len(ind_nan_ii) > 0:
+            ind_nan.append(ii)
+            print('Hey, this is a NaN frame:', ii)
+        else:
+            ind_good.append(ii)
+    N_date_good = len(ind_good)
 
-    # From header image
-    col_start[ii] = header2['CRVAL1P']
-    row_start[ii] = header2['CRVAL2P']
+    # New time series without NaN frames
+    image_time_series_good = image_time_series_raw[:, ind_good, :]
 
-    N_pix[ii] = header2['NAXIS2']
+    # Calculate mean and median without NaN frames
+    ima_good_mean = np.mean(image_time_series_good, axis=1)
+    ima_good_median = np.median(image_time_series_good, axis=1)
 
-# Filling up the big array by assembling columns into images
-# A big grid to place all the column target pixel files
-col_min = min(col_start)
-col_max = max(col_start)
-N_col = int(col_max - col_min + 1)
+    # Reshape the array such that time is the last dimension
+    image_time_series_reshape = np.transpose(image_time_series_good, (0, 2, 1))
+    return ima_good_mean, ima_good_median, image_time_series_reshape
 
-row_min = min(row_start)
-row_max = max(row_start + N_pix)
-N_row = int(row_max - row_min + 1)
+def display_static_image(data, save_path=None):
+    plt.rcParams["figure.figsize"] = [7.00, 3.50]
+    plt.rcParams["figure.autolayout"] = True
+    plt.imshow(data, vmin=0, vmax=50)
+    plt.title("Static Image")
+    plt.xlabel("Pixel Row")
+    plt.ylabel("Time")
+    plt.colorbar(label="Flux")
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
 
-N_date = int(max(N_date_ii))
+def segment_larger_stars(frame_data, threshold):
+    # Perform segmentation to isolate larger stars
+    binary_image = frame_data > threshold
+    labeled_image, num_features = label(binary_image)
+    return labeled_image, num_features
 
-# Loop over the files
-image_time_series = np.zeros((N_row, N_date, N_file))
-for ii in range(N_file):
-    file_name = os.path.join(dir_data, file_list[ii])
-    tab = fits.getdata(file_name, ext=1)
+def calculate_centroids(labeled_image, num_features):
+    centroids = []
+    for label_idx in range(1, num_features + 1):
+        centroid = center_of_mass(labeled_image, None, label_idx)
+        centroids.append(centroid)
+    return centroids
 
-    col_sap_ii = tab['FLUX']
+def find_star_centroids(frame_data, threshold_value):
+    binary_image = frame_data > threshold_value
+    labeled_image, num_features = label(binary_image)
+    centroids = []
+    for label_idx in range(1, num_features + 1):
+        centroid = center_of_mass(binary_image, labeled_image, label_idx)
+        centroids.append(centroid)
+    return centroids
 
-    ind_y_min = int(row_start[ii] - row_min)
-    ind_y_max = int(ind_y_min + N_pix[ii])
-    #desired_shape = col_sap_ii.shape
-    #image_time_series_reshaped = image_time_series.reshape(desired_shape)
-    #image_time_series_reshaped[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
-    #image_time_series.reshape(desired_shape)
-    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii
-    #print(ind_y_min, ind_y_max, N_date_ii[ii])
-    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
-    #image_time_series[ind_y_min : ind_y_max, : col_sap_ii[ii].shape[1], ii] = col_sap_ii[ii]
-    image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+def calculate_distance(pos1, pos2):
+    return np.sqrt((pos1[0] - pos2[0])**2 + (pos1[1] - pos2[1])**2)
 
-# Calculate mean and median
-ima_mean = np.mean(image_time_series, axis=1)
-ima_median = np.median(image_time_series, axis=1)
+def track_centroids(image_time_series_reshape, threshold):
+    centroid_positions = []  # Initialize list to store centroid positions
 
-# Display static image
-plt.rcParams["figure.figsize"] = [7.00, 3.50]
-plt.rcParams["figure.autolayout"] = True
-data = image_time_series[:, 0, :]
-plt.imshow(data, vmin=0, vmax=50)
-plt.title("Static Image")
-plt.xlabel("Pixel Row")
-plt.ylabel("Time")
-plt.colorbar(label="Flux")
-plt.show()
+    for frame_number, frame_data in enumerate(image_time_series_reshape):
+        current_frame_centroids = find_star_centroids(frame_data, threshold)
+        # Check if there's a centroid from the previous frame within the threshold distance
+        matched_centroids = []
+        for centroid in current_frame_centroids:
+            found_match = False
+            for prev_centroid in centroid_positions:
+                prev_frame_number, prev_x, prev_y = prev_centroid
+                distance = calculate_distance((centroid[0], centroid[1]), (prev_x, prev_y))
+                if distance < threshold:
+                    found_match = True
+                    # Append centroid in the format (frame_number, x_position, y_position)
+                    matched_centroids.append((frame_number, centroid[1], centroid[0]))  # Corrected positions
+                    break
+            if not found_match:
+                matched_centroids.append((frame_number, centroid[1], centroid[0]))  # Corrected positions
+        centroid_positions.extend(matched_centroids)
+     # Print the centroid positions for debugging
+    print("Centroid Positions:")
+    for centroid in centroid_positions:
+        print(centroid)
+    return centroid_positions
 
-# Create a figure and axis
-fig, ax = plt.subplots(figsize=(7.00, 3.50))
-ax.set_xticks([])
-ax.set_yticks([])
-ax.grid(False)
-# Function to update the plot for each frame
-def update(frame):
-    print(f"Updating frame {frame}")
-    frame_data = image_time_series[:, frame, :]
-    ax.clear()
-    ax.imshow(frame_data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
-    ax.set_title(f"Frame {frame}")
-    ax.set_xlabel("Pixel Row")
-    ax.set_ylabel("Time")
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.grid(False)
+def save_centroid_data(centroid_positions, file_path):
+    with open(file_path, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(['Frame', 'X-coordinate', 'Y-coordinate'])
+        for centroid in centroid_positions:
+            frame_number, x_position, y_position = centroid
+            writer.writerow([frame_number, x_position, y_position])
+
+def create_animation(image_time_series_reshape, threshold_value):
+    fig_cleaned, ax_cleaned = plt.subplots(figsize=(7.00, 3.50))
+    ax_cleaned.set_xticks([])
+    ax_cleaned.set_yticks([])
+    ax_cleaned.grid(False)
+    # Function to update the plot for each frame in the cleaned animation
+    def update_cleaned(frame):
+        if frame < image_time_series_reshape.shape[2]:
+            frame_data_cleaned = image_time_series_reshape[:, :, frame]
+            ax_cleaned.clear()
+            ax_cleaned.imshow(frame_data_cleaned, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+            ax_cleaned.set_title(f"Frame {frame} - Cleaned")
+            ax_cleaned.set_xlabel("Pixel Row")
+            ax_cleaned.set_ylabel("Time")
+            ax_cleaned.set_xticks([])
+            ax_cleaned.set_yticks([])
+            ax_cleaned.grid(False)
+            print('Frame being updated:', frame)
+            # Plot centroids
+            # Plot centroids with smaller icons
+            centroids = find_star_centroids(frame_data_cleaned, threshold_value)
+            for centroid in centroids:
+                plt.plot(centroid[1], centroid[0], 'ro', markersize=1)  # Adjust markersize as needed
+    # Create the cleaned animation and set the speed
+    animation_cleaned = FuncAnimation(fig_cleaned, update_cleaned, frames=image_time_series_reshape.shape[2], interval=100)
+    # Specify the writer explicitly to handle the .gif extension
+    save_path_cleaned = 'image_time_series_animation_cleaned.gif'
+    writer_cleaned = PillowWriter(fps=50)  # Adjust the fps for desired speed
+    animation_cleaned.save(save_path_cleaned, writer=writer_cleaned)
+    plt.show()
+
+def main():
+    # Directory path for data
+    dir_data = 'D:\Kepler Code'
+    #dir_data = 'D:\\Kepler Code\\teste'
+
+    # Read FITS data
+    N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor = read_fits_data(dir_data)
     
+    # Preprocess data
+    ima_good_mean, ima_good_median, image_time_series_reshape = preprocess_data(image_time_series_raw)
+    
+    # Save and display static image
+    static_image_path = 'static_image.png'
+    display_static_image(image_time_series_reshape[:, :, 0], save_path=static_image_path)
+    
+    # Set the threshold value for star identification
+    threshold_value = 100
 
-save_directory = 'D:\\Kepler Code\\KeplerK2'
+    # Track centroids
+    centroid_positions = track_centroids(image_time_series_reshape, threshold_value)
 
-if not os.path.exists(save_directory):
-    os.makedirs(save_directory)
+    # Create animation with centroids
+    create_animation(image_time_series_reshape, threshold_value)
 
-save_path = 'image_time_series_animation.gif'
+    save_centroid_data(centroid_positions, 'centroid_data.csv')
 
-# Create the animation
-animation = FuncAnimation(fig, update, frames=image_time_series.shape[2], interval=200)
+    plt.show()  # Ensure all plots are displayed
 
-# Specify the writer explicitly to handle the .gif extension
-writer = PillowWriter(fps=10)
-animation.save(save_path, writer=writer)
+    input("Press Enter to exit...")
 
-plt.show()
+if __name__ == "__main__":
+    main()

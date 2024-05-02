@@ -1,0 +1,348 @@
+from astropy.io import fits
+import numpy as np
+import os
+import matplotlib.pyplot as plt
+from matplotlib.animation import FuncAnimation, PillowWriter
+import csv
+import matplotlib.patches as patches
+
+def read_fits_data(dir_data):
+    file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
+    N_file = len(file_list)
+
+    N_date_ii = np.zeros(N_file)
+    col_start = np.zeros(N_file)
+    row_start = np.zeros(N_file)
+    N_pix = np.zeros(N_file)
+
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            header1 = hdulist[1].header
+            header2 = hdulist[2].header
+
+        N_date_ii[ii] = header1['NAXIS2']
+        col_start[ii] = header2['CRVAL1P']
+        row_start[ii] = header2['CRVAL2P']
+        N_pix[ii] = header2['NAXIS2']
+
+    col_min = min(col_start)
+    col_max = max(col_start)
+    N_col = int(col_max - col_min + 1)
+
+    row_min = min(row_start)
+    row_max = max(row_start + N_pix)
+    N_row = int(row_max - row_min + 1)
+    N_date = int(max(N_date_ii))
+
+    time_time_series = np.zeros((N_date, N_file))
+    image_time_series_raw = np.zeros((N_row, N_date, N_file))
+    image_time_series_cor = np.zeros((N_row, N_date, N_file))
+
+    for ii in range(N_file):
+        file_name = os.path.join(dir_data, file_list[ii])
+        with fits.open(file_name) as hdulist:
+            tab = hdulist[1].data
+
+        ind_y_min = int(row_start[ii] - row_min)
+        ind_y_max = int(ind_y_min + N_pix[ii])
+
+        t_ii = tab['TIME']
+        time_time_series[:, ii] = t_ii
+
+        col_sap_ii = tab['FLUX']
+        image_time_series_raw[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+
+        image_time_series_cor[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+
+    return N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor
+
+
+def preprocess_data(image_time_series_raw):
+
+    N_row, N_file, N_date_good = image_time_series_raw.shape[0], image_time_series_raw.shape[2], image_time_series_raw.shape[1]
+
+    # Remove NaN frames
+    ind_nan = []
+    ind_good = []
+    for ii in range(N_date_good):
+        ima_ii = np.squeeze(image_time_series_raw[:, ii, :])
+        ind_nan_ii = np.where(np.isnan(ima_ii))[0]
+        if len(ind_nan_ii) > 0:
+            ind_nan.append(ii)
+            print('Hey, this is a NaN frame:', ii)
+        else:
+            ind_good.append(ii)
+    N_date_good = len(ind_good)
+
+    # New time series without NaN frames
+    image_time_series_good = image_time_series_raw[:, ind_good, :]
+
+    # Calculate mean and median without NaN frames
+    ima_good_mean = np.mean(image_time_series_good, axis=1)
+    ima_good_median = np.median(image_time_series_good, axis=1)
+
+    # Reshape the array such that time is the last dimension
+    image_time_series_reshape = np.transpose(image_time_series_good, (0, 2, 1))
+    return ima_good_mean, ima_good_median, image_time_series_reshape
+
+def save_centroid_data_to_csv(centroids_data, dir_data):
+    csv_filename = os.path.join(dir_data, 'centroid_data.csv')
+    with open(csv_filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        # Write header
+        writer.writerow(['Frame'] + [f'ROI_{roi_index}' for roi_index in centroids_data.keys()])
+        # Write data
+        for frame, centroid_values in enumerate(zip(*centroids_data.values())):
+            writer.writerow([frame] + list(centroid_values))
+
+
+def display_static_image(data, median_data, coordinates, save_path=None):
+    fig, axs = plt.subplots(2, 1, figsize=(7, 14))
+
+    # Display first frame with red boxes
+    axs[0].imshow(data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+    axs[0].set_title("First Frame with Boxes")
+    axs[0].set_xlabel("Pixel Row")
+    axs[0].set_ylabel("Time")
+    axs[0].set_xticks([])
+    axs[0].set_yticks([])
+
+    # Draw red boxes on the first frame
+    for coords in coordinates:
+        x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+        rect = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, linewidth=1, edgecolor='red', facecolor='none')
+        axs[0].add_patch(rect)
+
+    # Display median frame with red boxes
+    axs[1].imshow(median_data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+    axs[1].set_title("Median Frame with Boxes")
+    axs[1].set_xlabel("Pixel Row")
+    axs[1].set_ylabel("Time")
+    axs[1].set_xticks([])
+    axs[1].set_yticks([])
+
+    # Draw red boxes on the median frame
+    for coords in coordinates:
+        x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+        rect = patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, linewidth=1, edgecolor='red', facecolor='none')
+        axs[1].add_patch(rect)
+
+    if save_path:
+        plt.savefig(save_path)
+    plt.show()
+
+
+def create_animation(image_time_series_reshape):
+    fig_cleaned, ax_cleaned = plt.subplots(figsize=(7.00, 3.50))
+    ax_cleaned.set_xticks([])
+    ax_cleaned.set_yticks([])
+    ax_cleaned.grid(False)
+    # Function to update the plot for each frame in the cleaned animation
+    def update_cleaned(frame):
+        if frame < image_time_series_reshape.shape[2]:
+            frame_data_cleaned = image_time_series_reshape[:, :, frame]
+            ax_cleaned.clear()
+            ax_cleaned.imshow(frame_data_cleaned, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+            ax_cleaned.set_title(f"Frame {frame} - Cleaned")
+            ax_cleaned.set_xlabel("Pixel Row")
+            ax_cleaned.set_ylabel("Time")
+            ax_cleaned.set_xticks([])
+            ax_cleaned.set_yticks([])
+            ax_cleaned.grid(False)
+            print('Frame being updated:', frame)
+
+    # Create the cleaned animation and set the speed
+    animation_cleaned = FuncAnimation(fig_cleaned, update_cleaned, frames=image_time_series_reshape.shape[2], interval=100)
+    # Specify the writer explicitly to handle the .gif extension
+    save_path_cleaned = 'image_time_series_animation_V1.gif'
+    writer_cleaned = PillowWriter(fps=50)  # Adjust the fps for desired speed
+    animation_cleaned.save(save_path_cleaned, writer=writer_cleaned)
+    plt.show()
+
+
+
+def create_centroid_animations(image_time_series_reshape, centroids_over_time, coordinates, save_directory):
+    # Initialize a dictionary to store centroid data
+    centroids_data = {roi_index: [] for roi_index in centroids_over_time.keys()}
+
+    for roi_index, centroid_list in centroids_over_time.items():
+        fig, ax = plt.subplots(figsize=(7.00, 3.50))
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.grid(False)
+
+        x_min, y_min, x_max, y_max = map(int, coordinates[roi_index])  # Extract ROI coordinates
+
+        def update(frame):
+            if frame < len(centroid_list):
+                centroid = centroid_list[frame]
+                frame_data = image_time_series_reshape[y_min:y_max, x_min:x_max, frame]  # Extract ROI frame
+                ax.clear()
+                ax.imshow(frame_data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+                ax.scatter(centroid[0] - x_min, centroid[1] - y_min, color='red', marker='o')  # Plot the centroid relative to ROI
+                ax.set_title(f'Centroid {roi_index+1} - Frame {frame}')
+                ax.set_xlabel("Pixel Row")
+                ax.set_ylabel("Pixel Column")
+                ax.grid(False)
+                
+                # Update centroid data dictionary
+                centroids_data[roi_index].append(centroid)
+
+                # Print progress
+                print(f'Frame {frame} for Centroid {roi_index+1}: x = {centroid[0]}, y = {centroid[1]}')
+
+        animation = FuncAnimation(fig, update, frames=len(centroid_list), interval=100)
+        save_path = os.path.join(save_directory, f'centroid_{roi_index+1}_time_series.gif')
+        writer = PillowWriter(fps=50)  # Adjust the fps for desired speed
+        animation.save(save_path, writer=writer)
+
+    # Return centroid data dictionary
+    return centroids_data
+
+def save_flux_data(image_time_series_reshape, square_coordinates):
+    for i, coords in enumerate(square_coordinates):
+        x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+        roi_flux_data = image_time_series_reshape[y_min:y_max, x_min:x_max, :]
+
+        # Reshape the ROI flux data for saving
+        roi_flux_data_reshaped = roi_flux_data.reshape((-1, roi_flux_data.shape[-1]))
+
+        # Save ROI flux data to CSV
+        csv_filename = f'roi_{i+1}_flux_data.csv'
+        with open(csv_filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile)
+            # Write header
+            writer.writerow(['Pixel Row', 'Time', 'Flux'])
+            # Write data
+            for pixel_row in range(roi_flux_data_reshaped.shape[0]):
+                for frame, flux in enumerate(roi_flux_data_reshaped[pixel_row]):
+                    writer.writerow([pixel_row, frame, flux])
+                    
+def calculate_centroids_static(image_time_series_reshape, coordinates):
+    centroids = []
+    for coords in coordinates:
+        x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+        subframe = image_time_series_reshape[y_min:y_max, x_min:x_max, 0]  # Consider only the first frame for centroid calculation
+
+        # Create meshgrid for x and y coordinates
+        y_mesh, x_mesh = np.mgrid[y_min:y_max, x_min:x_max]
+
+        # Calculate x and y centroids
+        x_centroid = np.sum(x_mesh * subframe) / np.sum(subframe)
+        y_centroid = np.sum(y_mesh * subframe) / np.sum(subframe)
+
+        centroids.append((x_centroid, y_centroid))
+
+    return centroids
+
+def calculate_centroids_dynamic(image_time_series_reshape, coordinates):
+    centroids_over_time = {i: [] for i in range(len(coordinates))}
+    for frame in range(image_time_series_reshape.shape[2]):  # Iterate over frames
+        for roi_index, coords in enumerate(coordinates):  # Iterate over ROIs
+            x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+            subframe = image_time_series_reshape[y_min:y_max, x_min:x_max, frame]  # Extract frame
+
+            # Create meshgrid for x and y coordinates
+            y_mesh, x_mesh = np.mgrid[y_min:y_max, x_min:x_max]
+
+            # Calculate x and y centroids
+            x_centroid = np.sum(x_mesh * subframe) / np.sum(subframe)
+            y_centroid = np.sum(y_mesh * subframe) / np.sum(subframe)
+
+            centroids_over_time[roi_index].append((x_centroid, y_centroid))
+
+    return centroids_over_time
+
+def display_centroid_boxes_static(image_time_series_reshape, centroids, coordinates, save_directory):
+    for i, (centroid, coords) in enumerate(zip(centroids, coordinates)):
+        x_min, y_min, x_max, y_max = map(int, coords)  # Convert coordinates to integers
+
+        # Extract the subframe
+        subframe = image_time_series_reshape[y_min:y_max, x_min:x_max, 0]  # Considering only the first frame for visualization
+
+        # Create a plot to display the subframe
+        plt.imshow(subframe, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+        plt.scatter(centroid[0] - x_min, centroid[1] - y_min, color='red', marker='o')  # Plot the centroid point
+        plt.title(f'Centroid Box {i+1}')
+        plt.xlabel('Pixel Column')
+        plt.ylabel('Pixel Row')
+        plt.colorbar(label='Flux')
+        #plt.show()
+        
+        # Save the image
+        save_path = os.path.join(save_directory, f'centroid_box_{i+1}.png')
+        plt.savefig(save_path)
+        
+        plt.close()  # Close the plot to prevent overlapping images
+
+
+def main():
+    # Directory path for data
+    dir_data = 'D:\Kepler Code'
+
+    # Coordinates for ROIs
+    coordinates = [
+        [20, 137, 31, 145],  # [x_min, y_min, x_max, y_max]
+        [5, 144, 14, 154],
+        [82, 128, 88, 135],
+        [140, 81, 148, 89],
+        [183, 106, 192, 114],
+        [208, 99, 216, 108],
+        [223, 101, 231, 108],
+        [201, 57, 207, 65],
+        [204, 68, 212, 72],
+        [295, 70, 302, 79],
+        [346, 72, 353, 78],
+        [355, 57, 362, 64],
+        [345, 43, 356, 52],
+        [351, 35, 358, 43],
+        [375, 44, 380, 50],
+        [415, 36, 423, 44],
+        [425, 38, 432, 46]
+    ]
+
+
+    # Read FITS data
+    N_row, N_file, N_date, time_time_series, image_time_series_raw, image_time_series_cor = read_fits_data(dir_data)
+
+    # Preprocess data
+    ima_good_mean, ima_good_median, image_time_series_reshape = preprocess_data(image_time_series_raw)
+
+    # Calculate centroids for each ROI
+    centroids = calculate_centroids_static(image_time_series_reshape, coordinates)
+
+    # Calculate centroids for each ROI over time
+    centroids_over_time = calculate_centroids_dynamic(image_time_series_reshape, coordinates)
+
+    # Create centroid animations and get centroids data
+    centroids_data = create_centroid_animations(image_time_series_reshape, centroids_over_time, coordinates, dir_data)
+
+    # Save flux data for each ROI
+    save_flux_data(image_time_series_reshape, coordinates)
+
+    # Save and display static image
+    static_image_path = 'static_image.png'
+    display_static_image(image_time_series_reshape[:, :, 0], ima_good_median, coordinates, save_path=static_image_path)
+    
+   #Display and save images of centroid boxes
+    display_centroid_boxes_static(image_time_series_reshape, centroids, coordinates, dir_data)
+
+    #Saving centroid data into variable
+    #centroids_data = create_centroid_animations(image_time_series_reshape, centroids_over_time, coordinates ,dir_data)
+
+    # Saving centroid data to CSV using the returned centroids_data dictionary
+    save_centroid_data_to_csv(centroids_data, dir_data)
+
+
+    # Creating time_series animation
+    create_animation(image_time_series_reshape)
+    
+
+    plt.show()  # Ensure all plots are displayed
+
+    input("Press Enter to exit...")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,120 @@
+from astropy.io import fits
+import numpy as np
+import os, sys
+import matplotlib.pyplot as plt
+from matplotlib.colors import Normalize
+from matplotlib.animation import FuncAnimation, FFMpegWriter
+from matplotlib.animation import PillowWriter
+
+# Directory path for data institute
+#dir_data = '/home/atila/Repository/Kepler/Data/'
+# Directory path for data Home
+dir_data = 'D:\Kepler Code'
+
+
+# Get the list of FITS files
+file_list = [f for f in os.listdir(dir_data) if f.endswith('c03_lpd-targ.fits')]
+N_file = len(file_list)
+
+# Initialize arrays to store information
+N_date_ii = np.zeros(N_file)
+col_start = np.zeros(N_file)
+row_start = np.zeros(N_file)
+N_pix = np.zeros(N_file)
+
+# Loop over the headers to get column and row information
+for ii in range(N_file):
+    file_name = os.path.join(dir_data, file_list[ii])
+    with fits.open(file_name) as hdulist: 
+        header1 = hdulist[1].header
+        header2 = hdulist[2].header
+    header = fits.getheader(file_name)
+    #print(repr(header2))
+
+    # From header binary table
+    N_date_ii[ii] = header1['NAXIS2']
+
+    # From header image
+    col_start[ii] = header2['CRVAL1P']
+    row_start[ii] = header2['CRVAL2P']
+
+    N_pix[ii] = header2['NAXIS2']
+
+# Filling up the big array by assembling columns into images
+# A big grid to place all the column target pixel files
+col_min = min(col_start)
+col_max = max(col_start)
+N_col = int(col_max - col_min + 1)
+
+row_min = min(row_start)
+row_max = max(row_start + N_pix)
+N_row = int(row_max - row_min + 1)
+
+N_date = int(max(N_date_ii))
+
+# Loop over the files
+image_time_series = np.zeros((N_row, N_date, N_file))
+for ii in range(N_file):
+    file_name = os.path.join(dir_data, file_list[ii])
+    tab = fits.getdata(file_name, ext=1)
+
+    col_sap_ii = tab['FLUX']
+
+    ind_y_min = int(row_start[ii] - row_min)
+    ind_y_max = int(ind_y_min + N_pix[ii])
+    #desired_shape = col_sap_ii.shape
+    #image_time_series_reshaped = image_time_series.reshape(desired_shape)
+    #image_time_series_reshaped[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
+    #image_time_series.reshape(desired_shape)
+    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii
+    #print(ind_y_min, ind_y_max, N_date_ii[ii])
+    #image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii[ii]
+    #image_time_series[ind_y_min : ind_y_max, : col_sap_ii[ii].shape[1], ii] = col_sap_ii[ii]
+    image_time_series[ind_y_min:ind_y_max, :, ii] = col_sap_ii.T
+
+
+# Display static image
+plt.rcParams["figure.figsize"] = [7.00, 3.50]
+plt.rcParams["figure.autolayout"] = True
+data = image_time_series[:, 0, :]
+plt.imshow(data, vmin=0, vmax=50)
+plt.title("Static Image")
+plt.xlabel("Pixel Row")
+plt.ylabel("Time")
+plt.colorbar(label="Flux")
+plt.show()
+
+# Create a figure and axis
+fig, ax = plt.subplots(figsize=(7.00, 3.50))
+ax.set_xticks([])
+ax.set_yticks([])
+ax.grid(False)
+# Function to update the plot for each frame
+def update(frame):
+    print(f"Updating frame {frame}")
+    frame_data = image_time_series[:, frame, :]
+    ax.clear()
+    ax.imshow(frame_data, cmap='viridis', origin='lower', vmin=0, vmax=50, aspect='auto')
+    ax.set_title(f"Frame {frame}")
+    ax.set_xlabel("Pixel Row")
+    ax.set_ylabel("Time")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(False)
+    
+
+save_directory = 'D:\\Kepler Code\\KeplerK2'
+
+if not os.path.exists(save_directory):
+    os.makedirs(save_directory)
+
+save_path = 'image_time_series_animation.gif'
+
+# Create the animation
+animation = FuncAnimation(fig, update, frames=image_time_series.shape[2], interval=200)
+
+# Specify the writer explicitly to handle the .gif extension
+writer = PillowWriter(fps=10)
+animation.save(save_path, writer=writer)
+
+plt.show()
