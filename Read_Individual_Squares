@@ -10,19 +10,25 @@ def plot_deviation_from_mean(csv_file):
     # Extract time (frame number)
     time = data['Frame'].values
     
-    # Extract centroid coordinates for each ROI
+    # Extract centroid coordinates
     x_centroids = []
     y_centroids = []
-    for roi_index in range(17):
+    roi_indices = [0, 1, 3, 13, 14]
+    #roi_indices = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+    #y_deviation_sum = np.zeros_like(time, dtype=float)  # array of Y deviations  
+    for roi_index in roi_indices:
         roi_column = f'ROI_{roi_index}'
         roi_centroids = [ast.literal_eval(coord) for coord in data[roi_column].values]
         x_centroids.append([coord[0] for coord in roi_centroids])
         y_centroids.append([coord[1] for coord in roi_centroids])
+        #mean_y = np.mean(y_centroids)
+        #deviation_y = y_centroids - mean_y
+        #y_deviation_sum += deviation_y
     
-    # Calculate mean X and Y centroids for each ROI manually
+    # Calculate mean X and Y centroids for the selected ROIs
     mean_x_centroids = []
     mean_y_centroids = []
-    for roi_index in range(17):
+    for roi_index in range(len(roi_indices)):
         x_sum = sum(x_centroids[roi_index])
         y_sum = sum(y_centroids[roi_index])
         mean_x = x_sum / len(x_centroids[roi_index])
@@ -34,22 +40,22 @@ def plot_deviation_from_mean(csv_file):
     fig, axs = plt.subplots(2, 2, figsize=(15, 10))
 
     # Plot deviation from mean X centroid for each ROI
-    for roi_index in range(17):
-        deviation_x = np.array(x_centroids[roi_index]) - mean_x_centroids[roi_index]
-        axs[0, 0].plot(time, deviation_x, label=f'ROI_{roi_index} X')
+    for roi_index in range(len(roi_indices)):
+        deviation_x = np.array(x_centroids[roi_index]) - mean_x_centroids[roi_index]allmost (Rowe et al. 2006, 2008),
+        axs[0, 0].plot(time, deviation_x, label=f'ROI_{roi_indices[roi_index]} X')
 
     # Plot deviation from mean Y centroid for each ROI
-    for roi_index in range(17):
+    for roi_index in range(len(roi_indices)):
         deviation_y = np.array(y_centroids[roi_index]) - mean_y_centroids[roi_index]
-        axs[0, 1].plot(time, deviation_y, label=f'ROI_{roi_index} Y')
+        axs[0, 1].plot(time, deviation_y, label=f'ROI_{roi_indices[roi_index]} Y')
 
     # Plot X centroids
-    for roi_index in range(17):
-        axs[1, 0].plot(time, x_centroids[roi_index], label=f'ROI_{roi_index}')
+    for roi_index in range(len(roi_indices)):
+        axs[1, 0].plot(time, x_centroids[roi_index], label=f'ROI_{roi_indices[roi_index]}')
 
     # Plot Y centroids
-    for roi_index in range(17):
-        axs[1, 1].plot(time, y_centroids[roi_index], label=f'ROI_{roi_index}')
+    for roi_index in range(len(roi_indices)):
+        axs[1, 1].plot(time, y_centroids[roi_index], label=f'ROI_{roi_indices[roi_index]}')
 
     # Set labels and title for each subplot
     axs[0, 0].set(xlabel='Time (Frame)', ylabel='Deviation from Mean Centroid X',
@@ -72,6 +78,14 @@ def plot_deviation_from_mean(csv_file):
     plt.tight_layout()
 
     plt.show()
+
+
+    # # Plotting y deviation
+    # plt.plot(time, y_deviation_sum)
+    # plt.xlabel('Time (Frame)')
+    # plt.ylabel('Sum of Y Deviation from Mean')
+    # plt.title('Sum of Y Deviation from Mean Over Time')
+    # plt.show()
 
 if __name__ == "__main__":
     csv_file = "centroid_data.csv" 

@@ -1,0 +1,75 @@
+import numpy as np
+from scipy import interpolate
+import matplotlib.pyplot as plt
+from scipy.stats import norm
+from scipy.interpolate import griddata
+
+
+def func(x):
+    return x*np.exp(-5.0*x**2)
+
+x = np.array([1,6,7,9,12,20])
+y = np.array([2,8,6,10,14,41])
+fvals = func(x)
+
+
+x_interp = np.linspace(np.min(x), np.max(x), 50)
+
+"""plt.plot(x,y)
+plt.show()"""
+
+
+
+
+# 1d cubic spline
+y_cubic = interpolate.interp1d(x,y, kind='cubic')
+
+"""plt.plot(x,y,"red",label='data points')
+plt.plot(x_interp,y_cubic(x_interp), "blue", label = "cubic spline")
+plt.legend()
+plt.show()"""
+
+
+A = 1
+ro = 1
+x = np.arange(0, 15, 0.1)
+x_1 = 5.72
+x_2 = 7.34
+dx = x_2 - x_1
+g1 = A * np.exp((-(x - x_1)**2) / (2 * ro**2))
+g2 = A * np.exp((-(x - x_2)**2) / (2 * ro**2))
+
+plt.plot(x, g1, label='Gaussian 1')
+plt.plot(x, g2, label='Gaussian 2')
+plt.legend()
+plt.show()
+
+#Shifting axis
+x_shift = x - dx
+
+
+plt.plot(x,g1,'o-')#
+plt.plot(x_shift,g2,'x-')#Should overlap with g1 but not on the same grid
+plt.show()
+
+
+# Interpolate Gaussian 2 onto the same x values as Gaussian 1
+g2_interp = np.interp(x, x_shift, g2)
+
+
+# Perform RBF interpolation
+#rbf = interpolate.RBFInterpolator(x, g2_interp, function='cubic')  # Create RBF interpolator"""
+#ggriddata = griddata(x, g2,  x_shift, method='cubic')
+f_interp = interpolate.interp1d(x_shift,g2, kind = 'cubic', fill_value='extrapolate')
+g2_interp2 = f_interp(x)
+"""g2_interp_into_g1 = rbf(x_interp)  # Interpolate Gaussian 2 into Gaussian 1"""
+
+plt.plot(x,g1,'o-')#
+plt.plot(x_shift,g2,'x-')#Should overlap with g1 but not on the same grid
+plt.plot(x,g2_interp,'d-')#
+plt.plot(x, g2_interp2, '^-')
+plt.show()
+
+
+
+
